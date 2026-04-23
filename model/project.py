@@ -3,6 +3,6 @@ from typing import Annotated
 
 
 class Project(Document):
-    name: str | None = None
-    ashaID: Annotated[str, Indexed(unique=True)]
-    created_by: str | None = None
+    Name: str | None = None
+    AshaID: Annotated[str, Indexed(unique=True)]
+    Created_by: str | None = None

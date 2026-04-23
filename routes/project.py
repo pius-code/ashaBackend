@@ -7,10 +7,10 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
 
 @router.post("/create_project")
-async def create_project(projectCreate: projectCreate):
+async def create_project(projectdet: projectCreate):
     try:
-        result = await create_an_asha_project(projectCreate)
-        slogger.info(f"Project created successfully: {projectCreate.name}")
+        result = await create_an_asha_project(projectdet)
+        slogger.info(f"Project created successfully: {projectdet.Name}")
         return {"detail": result}
     except Exception as e:
         slogger.error(f"Error creating project: {str(e)}")
