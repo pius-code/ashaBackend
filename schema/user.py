@@ -11,3 +11,8 @@ class UserOut(BaseModel):
     Email: EmailStr
     Name: str
     AshaID: str = None
+
+
+class UserLogIn(BaseModel):
+    Email: EmailStr
+    Password: str

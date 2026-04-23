@@ -7,7 +7,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from beanie import init_beanie
 from utils.logger import logger
-from model import __all__ as all_models
+from model import document_models as all_models
 
 
 load_dotenv()

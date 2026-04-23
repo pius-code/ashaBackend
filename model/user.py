@@ -6,7 +6,6 @@ class User(Document):
     Email: Annotated[str, Indexed(unique=True)]
     Name: str
     Password: str
-    AshaID: str | None = None
 
-    class Collection:
+    class Settings:
         name = "users"

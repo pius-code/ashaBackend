@@ -14,12 +14,8 @@ PUBLIC_PATHS = [
     "/",
     "/docs",
     "/openapi.json",
-    "/admin/login",
-    "/internship/internship_apply",
-    "/internship/purchase",
-    "/internship/paystack_verify_webhook",
-    "/internship/status",
-    "/careers/healthy",
+    "/api/v1/users/create",
+    "/api/v1/users/login",
 ]
 
 
