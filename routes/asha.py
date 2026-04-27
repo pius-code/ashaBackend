@@ -1,17 +1,35 @@
 # this file is for the hardware - software communication only!
 
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from schema.asha import AshaVerificationRequest
-from repository.asha_repo import check_ashaID_exists
+from repository.asha_repo import check_ashaID_exists, add_IoT_device, get_all_asha_devices_by_logged_in_user # noqa
+from utils.logger import slogger
+from middleware.auth import get_current_user
 
 
 router = APIRouter(prefix="/api/v1/asha", tags=["asha"])
 
 
-@router.get("/verify_and_register_device")
-async def verify_device(ashaID: AshaVerificationRequest):
-    is_valid = await check_ashaID_exists(ashaID.auth_id)
+@router.post("/verify_and_register_device")
+async def verify_device(AshaIoTPayload: AshaVerificationRequest):
+    slogger.info("New device being registered")
+    print(AshaIoTPayload)
+    is_valid = await check_ashaID_exists(AshaIoTPayload.auth_id)
     if not is_valid:
-        return HTTPException(status_code=404, detail="ASHA ID not found.")
-    return HTTPException(status_code=200, detail="ASHA ID is valid.")
+        raise HTTPException(status_code=404, detail="ASHA ID not found.")
+    added_device = await add_IoT_device(AshaIoTPayload)
+    return {
+        "message": "ASHA ID is valid and device registered successfully.",
+        "device": added_device
+    } # noqa
+
+
+@router.post("/get_devices_for_project_by_ashaID")
+async def get_devices_for_project(project_id: str):
+    pass
+
+
+@router.post("/get_all_devices_for_project_by_logged_in_user")
+async def get_all_devices_for_project_by_logged_in_user(current_user: dict = Depends(get_current_user)): # noqa
+    return await get_all_asha_devices_by_logged_in_user(current_user)

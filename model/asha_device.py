@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from beanie import Document
 from typing import List
+from pydantic import BaseModel
 
 
 class DeviceInfo(BaseModel):
@@ -11,6 +12,9 @@ class DeviceInfo(BaseModel):
     signal: str
 
 
-class AshaVerificationRequest(BaseModel):
+class AshaDevice(Document):
     auth_id: str
     devices: List[DeviceInfo]
+
+    class settings:
+        name = "asha_devices"
