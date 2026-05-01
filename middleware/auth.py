@@ -12,6 +12,7 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM")
 
 PUBLIC_PATHS = [
     "/",
+    "/mcp",
     "/docs",
     "/openapi.json",
     "/api/v1/users/create",

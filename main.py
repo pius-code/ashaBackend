@@ -8,6 +8,7 @@ from middleware.auth import verify_token_middleware
 from dotenv import load_dotenv
 import os
 
+
 load_dotenv()
 
 
@@ -42,7 +43,8 @@ app.add_middleware(
 
 def main():
     print("Hello from AHSA Backend!")
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0"
+                , port=8080, reload=True)
 
 
 if __name__ == "__main__":

@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from beanie import init_beanie
-from utils.logger import logger
+from utils.logger import logger, tlogger
 from model import document_models as all_models
+from core.mqtt import client
 
 
 load_dotenv()
@@ -26,7 +27,8 @@ async def lifespan(app):
         logger.info(
             f"Connected to MongoDB with {len(all_models)} document models"
         )  # noqa
-
+        client.loop_start()
+        tlogger.info("Connected TO MQTT")
         yield
 
     except Exception as e:
@@ -37,3 +39,5 @@ async def lifespan(app):
             logger.info("Disconnecting from MongoDB...")
             mongo_client.close()
             logger.info("Disconnected from MongoDB")
+            client.loop_stop()
+            tlogger.info("Disconnected from MQTT")

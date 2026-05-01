@@ -7,9 +7,8 @@ class DeviceInfo(BaseModel):
     device_id: int
     pin: int
     category: str
-    type: str
     metadata: str
-    signal: str
+    bus: str
 
 
 class AshaDevice(Document):

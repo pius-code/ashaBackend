@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from schema.asha import AshaVerificationRequest
-from repository.asha_repo import check_ashaID_exists, add_IoT_device, get_all_asha_devices_by_logged_in_user # noqa
+from repository.asha_repo import check_ashaID_exists, add_IoT_device, get_all_asha_devices_by_logged_in_user, get_asha_user_projects_and_devices # noqa
 from utils.logger import slogger
 from middleware.auth import get_current_user
 
@@ -33,3 +33,8 @@ async def get_devices_for_project(project_id: str):
 @router.post("/get_all_devices_for_project_by_logged_in_user")
 async def get_all_devices_for_project_by_logged_in_user(current_user: dict = Depends(get_current_user)): # noqa
     return await get_all_asha_devices_by_logged_in_user(current_user)
+
+
+@router.post("/get_project_and_devices")
+async def get_project_and_devices(current_user: dict = Depends(get_current_user)):
+    return await get_asha_user_projects_and_devices(current_user)
