@@ -111,25 +111,67 @@ async def publish_command(asha_id: str, payload: dict):
         {"action": "uart_write", "baud": <rate>, "tx_pin": 17, "rx_pin": 16, "data": [<bytes>]}
 
     Baud rates by device:
-        GPS module        → baud: 9600
-        GSM/SIM800        → baud: 9600
-        Fingerprint R307  → baud: 57600
+        GPS module          → baud: 9600
+        GSM/SIM800          → baud: 9600
+        Fingerprint R307    → baud: 57600
         Most modern modules → baud: 115200
 
     Examples:
-        GPS read          → {"action": "uart_write", "baud": 9600,  "tx_pin": 17, "rx_pin": 16, "data": ""}
-        GSM network check → {"action": "uart_write", "baud": 9600,  "tx_pin": 17, "rx_pin": 16, "data": "AT+CREG?\\r\\n"}
-        GSM SMS mode      → {"action": "uart_write", "baud": 9600,  "tx_pin": 17, "rx_pin": 16, "data": "AT+CMGF=1\\r\\n"}
+        GPS read          → {"action": "uart_write", "baud": 9600, "tx_pin": 17, "rx_pin": 16, "data": ""}
+        GSM network check → {"action": "uart_write", "baud": 9600, "tx_pin": 17, "rx_pin": 16, "data": "AT+CREG?\\r\\n"}
+        GSM SMS mode      → {"action": "uart_write", "baud": 9600, "tx_pin": 17, "rx_pin": 16, "data": "AT+CMGF=1\\r\\n"}
+
+    ──────────────────────────────────────────
+
+    BATCH (multiple commands in sequence)
+    Use for: controlling multiple devices at once, timed sequences, automation steps
+    Payload:
+        {"action": "batch", "commands": [<command>, <delay>, <command>, ...]}
+
+    Commands inside batch follow the same payload rules as individual commands.
+    To add a delay between commands use: {"delay_ms": <milliseconds>}
+
+    Examples:
+        Turn on PWM LED and Digital LED together:
+        {
+            "action": "batch",
+            "commands": [
+                {"pin": 18, "action": "pwm", "channel": 0, "freq": 5000, "duty": 65535},
+                {"pin": 20, "action": "digital", "value": 1}
+            ]
+        }
+
+        Turn on LED, wait 2 seconds, turn off:
+        {
+            "action": "batch",
+            "commands": [
+                {"pin": 20, "action": "digital", "value": 1},
+                {"delay_ms": 2000},
+                {"pin": 20, "action": "digital", "value": 0}
+            ]
+        }
+
+        Traffic light sequence (red on, others off):
+        {
+            "action": "batch",
+            "commands": [
+                {"pin": 18, "action": "digital", "value": 1},
+                {"pin": 19, "action": "digital", "value": 0},
+                {"pin": 20, "action": "digital", "value": 0}
+            ]
+        }
 
     ──────────────────────────────────────────
 
     RULES:
     1. Always match payload structure to bus type exactly
     2. Never guess a pin — always use the pin from get_user_projects_and_devices()
-    3. For PWM, never reuse a channel already assigned to another device
+    3. For PWM, never reuse a channel already assigned to another device. Never send a freq_hz=0 minimum should be 1.
     4. For I2C and SPI, never include a pin field
     5. When user says "turn on" a PWM LED, use duty: 65535. "Turn off" use duty: 0
     6. When user says "turn on" a Digital device, use value: 1. "Turn off" use value: 0
+    7. When user wants to control multiple devices at once, always use batch
+    8. When user wants a timed sequence (e.g. "turn on for 5 seconds"), use batch with delay_ms
     """
     publish_to_device(asha_id, payload)
     return {"status": "command sent", "asha_id": asha_id, "payload": payload}
