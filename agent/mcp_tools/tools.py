@@ -1,9 +1,11 @@
-"""all the tools that ASHA needs to run for now """
+"""all the tools that ASHA needs to run for now, use depends to get user id without the LLM having to ask for it, runs beofr etools are even understood by LLM, hidden """
 
 from agent.core.fastmcp import mcp
 from fastmcp.dependencies import Depends
 from agent.tools.devices_tools import get_asha_user_projects_and_devices
 from agent.tools.pubSub_tools import publish_to_device
+from agent.tools.scheduler import create_scheduled_workflow
+from agent.schema.workflow import Workflow
 
 
 def get_user_id() -> str:
@@ -175,3 +177,53 @@ async def publish_command(asha_id: str, payload: dict):
     """
     publish_to_device(asha_id, payload)
     return {"status": "command sent", "asha_id": asha_id, "payload": payload}
+
+
+@mcp.tool
+def create_a_scheduled_workflow(workflow: Workflow):
+    """
+    Use this tool when the user wants to automate a repeated or time-based task.
+
+    WHEN TO USE:
+    - "Turn on the light at 6am every day"
+    - "Turn off the fan every 30 minutes"
+    - "Every Friday at 9pm turn off all devices"
+    - Any request involving "every", "at [time]", "schedule", "automatically"
+
+    DO NOT USE for one-time commands — use publish_command instead.
+
+    BEFORE CALLING THIS TOOL:
+    Always call get_user_projects_and_devices() first to get the correct asha_id and device pins unless it has already been called and exists in context.
+
+    WORKFLOW_ID FORMAT:
+    Combine a short description with random alphanumeric characters.
+    Example: "morning_light_9x2k", "fan_schedule_b3m7"
+
+    CRON EXPRESSION FORMAT:
+    "minute hour day month day_of_week"
+    Examples:
+        Every day at 6am          → "0 6 * * *"
+        Every day at 10pm         → "0 22 * * *"
+        Every 30 minutes          → "*/30 * * * *"
+        Every Friday at 9pm       → "0 21 * * 5"
+        Every weekday at 8am      → "0 8 * * 1-5"
+        Every hour                → "0 * * * *"
+
+    ACTIONS FORMAT:
+    List of MQTT payloads following the same bus rules as publish_command.
+    Examples:
+        [{"pin": 18, "action": "digital", "value": 1}]
+        [{"pin": 18, "action": "digital", "value": 1}, {"pin": 19, "action": "digital", "value": 0}]
+        [{"pin": 18, "action": "pwm", "channel": 0, "freq": 5000, "duty": 65535}]
+
+    RULES:
+    1. Always use pins from get_user_projects_and_devices() — never guess
+    2. Generate a unique workflow_id every time
+    3. Match action payload structure to the device bus type exactly
+    4. If user says "turn on at X and off at Y" — create TWO separate workflows
+    5. If the repeat frequency is ambiguous ("do this repeatedly", "do this often") — 
+       ask the user to clarify before creating the workflow. 
+       Ask: "How often should this run? For example: every hour, every day at 6am, every 30 minutes."
+    6. Never assume a frequency — always confirm if unclear
+    """
+    create_scheduled_workflow(workflow)

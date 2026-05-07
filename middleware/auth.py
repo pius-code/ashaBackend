@@ -22,7 +22,9 @@ PUBLIC_PATHS = [
 
 
 async def verify_token_middleware(request: Request, call_next):
-    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
+    if (request.method == "OPTIONS" or
+        request.url.path.startswith("/mcp") or
+        request.url.path in PUBLIC_PATHS):
         return await call_next(request)
 
     auth_header = request.headers.get("Authorization")
