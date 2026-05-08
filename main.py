@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 import uvicorn
-from core.lifespan import lifespan
+from core.lifespan import create_lifespan
 from utils.swagger import custom_openapi
 from routes import api_router
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,20 +17,21 @@ load_dotenv()
 
 
 IS_DEV = os.getenv("ENV") == "development"
-
+mcp_app = mcp.http_app()
 app = FastAPI(
     title="ASHA",
     description="Backend for ASHA",
     version="1.0.0",
-    lifespan=lifespan,
+    lifespan=create_lifespan(mcp_app),
     docs_url="/docs" if IS_DEV else None,
     redoc_url=None,
 )
 
 
+app.include_router(api_router)
+app.mount("/", mcp_app)
 app.openapi = lambda: custom_openapi(app)
 app.middleware("http")(verify_token_middleware)
-app.include_router(api_router)
 
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
 

@@ -4,7 +4,7 @@ from agent.core.fastmcp import mcp
 from fastmcp.dependencies import Depends
 from agent.tools.devices_tools import get_asha_user_projects_and_devices
 from agent.tools.pubSub_tools import publish_to_device
-from agent.tools.scheduler import create_scheduled_workflow
+from agent.tools.scheduler import create_scheduled_workflow, delete_workflow
 from agent.schema.workflow import Workflow
 
 
@@ -227,3 +227,11 @@ def create_a_scheduled_workflow(workflow: Workflow):
     6. Never assume a frequency — always confirm if unclear
     """
     create_scheduled_workflow(workflow)
+
+
+
+
+@mcp.tool
+def delete_Workflow(workflow_id : str):
+    """Use this flow when a user wants to delete a workflow or stop it"""
+    delete_workflow(workflow_id)
