@@ -51,7 +51,7 @@ async def publish_command(asha_id: str, payload: dict):
         LED/Backlight dimming → freq: 5000,  duty: 0 (off) to 65535 (full brightness)
         DC Motor speed        → freq: 1000,  duty: 0 (stop) to 65535 (full speed)
         Servo position        → freq: 50,    duty: 3277 (0°) | 4915 (90°) | 6553 (180°)
-        Buzzer tone (440Hz A) → freq: 440,   duty: 128 (on) | 0 (off)
+        Buzzer tone (440Hz A) → freq: 440,   duty: 32767 (on) | 0 (off)
         Fan speed             → freq: 1000,  duty: 0 (off) to 65535 (full speed)
 
     Channel: assign 0-15, one per device. Never reuse a channel for two devices.
@@ -235,3 +235,129 @@ def create_a_scheduled_workflow(workflow: Workflow):
 def delete_Workflow(workflow_id : str):
     """Use this flow when a user wants to delete a workflow or stop it"""
     delete_workflow(workflow_id)
+
+
+@mcp.tool
+def create_a_real_time_task(asha_id: str, payload: dict):
+    """Use this tool when a task requires real-time or sensor-driven logic — for example:
+    "if I press this button, immediately turn on the fan", or "if the temperature sensor
+    exceeds 40, trigger the alarm". If the task involves conditions, sensor thresholds,
+    or must react without waiting for the agent, use this tool instead of publish_command.
+
+    Always call get_user_projects_and_devices() first to get the correct pin numbers and
+    device info. Never guess pin numbers.
+
+    HOW IT WORKS:
+    You write a Lua script as a string. The ESP32 runs it on a dedicated core (Core 0),
+    separate from the MQTT connection. The script has access to hardware via the `asha` module.
+
+    AVAILABLE LUA FUNCTIONS:
+        asha.command(jsonStr)   — send a hardware command (see formats below)
+        asha.digitalRead(pin)   — returns 0 or 1 (use for GPIO/digital pins only)
+        asha.analogRead(pin)    — returns 0 to 4095 (ADC pins GPIO 32-39 only)
+        asha.ledcRead(channel)  — returns current PWM duty (0 = off, >0 = on, -1 = not initialized)
+        asha.sleep(ms)          — pause for ms milliseconds, yields to OS scheduler
+        millis()                — returns device uptime in milliseconds
+        print(...)              — prints to device Serial output
+
+    CRITICAL — asha.sleep() IS MANDATORY IN ALL WHILE LOOPS:
+    The ESP32 has a watchdog timer that reboots the device if the background OS task
+    does not get CPU time within ~5 seconds. A tight while loop with no sleep will
+    always trigger this and reboot the device. Every while loop MUST call asha.sleep().
+    Minimum recommended: asha.sleep(10) — 10ms is enough to feed the watchdog.
+    There are no exceptions to this rule. A loop without asha.sleep() will always crash.
+
+    LUA SYNTAX BASICS:
+        Variables:      local x = 10
+        If/else:        if x == 1 then ... elseif x == 2 then ... else ... end
+        While loop:     while condition do ... end
+        Equality:       == (not === like JavaScript)
+        Not equal:      ~=
+        And / Or:       and / or (not && / ||)
+
+    NOTE ON WHILE LOOPS:
+    While loops are safe for MQTT (they run on a separate core), but the ESP32 cannot
+    receive a new Lua script until the current loop exits. Only use an infinite loop if
+    the behavior should run until the device is rebooted or reflashed.
+
+    READING HARDWARE STATE:
+        Digital pin:     local val = asha.digitalRead(pin)   — 0 or 1
+        Analog sensor:   local val = asha.analogRead(pin)    — 0 to 4095 (ADC pins only)
+        PWM device:      local val = asha.ledcRead(channel)  — 0 = off, >0 = on, -1 = not initialized
+        Do NOT use asha.command() for reading — it sends commands, returns nothing to Lua.
+
+    ORDERING RULE FOR ledcRead:
+    asha.ledcRead(channel) only works AFTER a PWM command has been sent to that channel.
+    The LEDC hardware peripheral is initialized the first time a PWM command runs on a channel.
+    If you call ledcRead before any PWM command, it returns -1 (not initialized).
+    ALWAYS send the PWM command first using publish_command, then send the Lua monitoring script.
+    In the Lua script, guard against -1 to be safe:
+        local duty = asha.ledcRead(0)
+        if duty == -1 then
+          print("LEDC not initialized, skipping")
+        elseif duty == 0 then
+          -- device is off, react
+        end
+
+    PAYLOAD FORMAT:
+        {
+            "action": "lua",
+            "script": "<lua script as a single string>"
+        }
+
+    COMMAND FORMATS (pass as a JSON string inside asha.command()):
+
+        Digital write:
+            asha.command('{"pin": 18, "action": "digital", "value": 1}')
+            value 1 = HIGH, 0 = LOW
+
+        PWM:
+            asha.command('{"pin": 18, "action": "pwm", "channel": 0, "freq": 5000, "duty": 65535}')
+
+        Batch (multiple commands in sequence):
+            asha.command('{"action": "batch", "commands": [{"pin": 18, "action": "digital", "value": 1}, {"delay_ms": 500}, {"pin": 18, "action": "digital", "value": 0}]}')
+
+        Non-blocking delay (use inside batch commands only, NOT as a loop delay):
+            include {"delay_ms": 1000} inside a batch commands array
+
+    EXAMPLES:
+
+        Button press → switch LEDs (runs once):
+            local btn = asha.digitalRead(21)
+            if btn == 1 then
+              asha.command('{"action": "batch", "commands": [{"pin": 18, "action": "digital", "value": 0}, {"pin": 20, "action": "digital", "value": 1}]}')
+            else
+              asha.command('{"pin": 18, "action": "digital", "value": 1}')
+            end
+
+        Sensor threshold alert (runs once):
+            local level = asha.analogRead(34)
+            if level > 3000 then
+              asha.command('{"pin": 25, "action": "digital", "value": 1}')
+            end
+
+        Persistent button monitor (runs until reboot — asha.sleep() is mandatory):
+            while true do
+              local btn = asha.digitalRead(21)
+              if btn == 1 then
+                asha.command('{"pin": 18, "action": "digital", "value": 1}')
+              else
+                asha.command('{"pin": 18, "action": "digital", "value": 0}')
+              end
+              asha.sleep(10)
+            end
+
+        PWM device monitor — beep when LED turns off (send PWM command first, then this script):
+            while true do
+              local duty = asha.ledcRead(0)
+              if duty == -1 then
+                print("channel not ready")
+              elseif duty == 0 then
+                asha.command('{"pin": 25, "action": "pwm", "channel": 1, "freq": 440, "duty": 32767}')
+              else
+                asha.command('{"pin": 25, "action": "pwm", "channel": 1, "freq": 440, "duty": 0}')
+              end
+              asha.sleep(10)
+            end
+    """
+    publish_to_device(asha_id, payload)
