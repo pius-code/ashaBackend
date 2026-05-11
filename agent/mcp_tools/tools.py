@@ -19,7 +19,7 @@ async def get_user_projects_and_devices():
 
 
 @mcp.tool
-async def publish_command(asha_id: str, payload: dict):
+async def publish_command(asha_id: str, payload: dict, wait_response: bool = False):
     """
     Publishes a command to an ESP32 device via MQTT.
     Use the device's bus type to determine the correct payload structure.
@@ -38,7 +38,8 @@ async def publish_command(asha_id: str, payload: dict):
     Examples:
         Turn ON  → {"pin": 18, "action": "digital", "value": 1}
         Turn OFF → {"pin": 18, "action": "digital", "value": 0}
-        Read     → {"pin": 18, "action": "digital", "value": -1}
+        Read     → {"pin": 18, "action": "digital", "value": -1}  → set wait_response=True to get the pin value back
+
 
     ──────────────────────────────────────────
 
@@ -174,9 +175,11 @@ async def publish_command(asha_id: str, payload: dict):
     6. When user says "turn on" a Digital device, use value: 1. "Turn off" use value: 0
     7. When user wants to control multiple devices at once, always use batch
     8. When user wants a timed sequence (e.g. "turn on for 5 seconds"), use batch with delay_ms
+    9. When user wants to READ a sensor value, set wait_response=True. Only use this for read operations (value: -1). Never use it for write commands.
     """
-    publish_to_device(asha_id, payload)
-    return {"status": "command sent", "asha_id": asha_id, "payload": payload}
+    response = publish_to_device(asha_id, payload, wait_response=wait_response)
+    return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
+
 
 
 @mcp.tool
