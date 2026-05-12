@@ -45,6 +45,7 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
 
     PWM (bus: "PWM")
     Use for: servos, DC motors, LED dimming, fans, buzzers
+    To read, add a value of -1 to the payload and set wait_response=True. The device will return the current duty cycle or sensor value.
     Payload:
         {"pin": <pin>, "action": "pwm", "channel": <0-15>, "freq": <hz>, "duty": <0-65535>}
 
@@ -57,11 +58,43 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
 
     Channel: assign 0-15, one per device. Never reuse a channel for two devices.
 
-    Examples:
+    PWM (bus: "PWM")
+    Use for: servos, DC motors, LED dimming, fans, buzzers
+    Payload (write):
+        {"pin": <pin>, "action": "pwm", "channel": <0-15>, "freq": <hz>, "duty": <0-65535>}
+    Payload (read):
+        {"pin": <pin>, "action": "pwm", "channel": <channel>, "value": -1} with wait_response=True
+
+    Frequency and duty by device type:
+        LED/Backlight dimming → freq: 5000,  duty: 0 (off) to 65535 (full brightness)
+        DC Motor speed        → freq: 1000,  duty: 0 (stop) to 65535 (full speed)
+        Servo position        → freq: 50,    duty: 3277 (0°) | 4915 (90°) | 6553 (180°)
+        Buzzer tone (440Hz A) → freq: 440,   duty: 32767 (on) | 0 (off)
+        Fan speed             → freq: 1000,  duty: 0 (off) to 65535 (full speed)
+
+    Channel: assign 0-15, one per device. Never reuse a channel for two devices.
+
+    Read response fields:
+        ledc_duty   → what the controller is configured to output (0-65535). Always present.
+        analog_avg  → average of 300 physical pin samples (0-4095 = 0-3.3V). Only present if pin is GPIO 32-39.
+        analog_note → present instead of analog_avg if pin is not ADC-capable.
+
+    Fault detection:
+        ledc_duty and analog_avg should agree proportionally:
+            ledc_duty / 65535 ≈ analog_avg / 4095
+        If ledc_duty is high but analog_avg is near 0 — device is likely faulty .
+
+    Examples (write):
         LED at 50% brightness → {"pin": 18, "action": "pwm", "channel": 0, "freq": 5000, "duty": 32767}
         Servo at 90°          → {"pin": 19, "action": "pwm", "channel": 1, "freq": 50,   "duty": 4915}
         Motor at full speed   → {"pin": 21, "action": "pwm", "channel": 2, "freq": 1000, "duty": 65535}
         Buzzer ON             → {"pin": 22, "action": "pwm", "channel": 3, "freq": 440,  "duty": 128}
+
+    Examples (read):
+        Read LED on ADC pin    → {"pin": 34, "action": "pwm", "channel": 0, "value": -1} wait_response=True
+        Read LED on non-ADC pin → {"pin": 18, "action": "pwm", "channel": 0, "value": -1} wait_response=True
+                                  → returns ledc_duty only, analog_note explains why analog_avg is absent
+
 
     ──────────────────────────────────────────
 
@@ -176,6 +209,7 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     7. When user wants to control multiple devices at once, always use batch
     8. When user wants a timed sequence (e.g. "turn on for 5 seconds"), use batch with delay_ms
     9. When user wants to READ a sensor value, set wait_response=True. Only use this for read operations (value: -1). Never use it for write commands.
+
     """
     response = publish_to_device(asha_id, payload, wait_response=wait_response)
     return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}

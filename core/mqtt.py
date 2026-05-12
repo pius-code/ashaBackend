@@ -5,4 +5,3 @@ client = mqtt.Client()
 client.connect("10.63.64.41", 1883)
 client.loop_start()
 
-

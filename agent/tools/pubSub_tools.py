@@ -8,23 +8,26 @@ _pending = {}
 
 def publish_to_device(asha_id: str, payload: dict, wait_response: bool = False):
     topic = f"asha/commands/{asha_id}"
-    result = client.publish(topic, json.dumps(payload))
-    tlogger.info(f"publish rc={result.rc} is_connected={client.is_connected()}")
 
     if not wait_response:
-        return 
+        result = client.publish(topic, json.dumps(payload))
+        tlogger.info(f"publish rc={result.rc} is_connected={client.is_connected()}")
+        return
 
-    rtopic = f"asha/responses/{asha_id}"
+    rtopic = f"asha/response/{asha_id}"
     client.subscribe(rtopic)
     payload["correlation_id"] = gen_correlation_id()
     event = threading.Event()
     _pending[payload["correlation_id"]] = {"event": event, "data": None}
-    client.publish(topic, json.dumps(payload))
+    result = client.publish(topic, json.dumps(payload))
+    tlogger.info(f"publish rc={result.rc} is_connected={client.is_connected()}")
     event.wait(5)
     rdata = _pending[payload["correlation_id"]]["data"]
     del _pending[payload["correlation_id"]]
     if rdata is None:
+        tlogger.info(f"timeout waiting for response from {asha_id}")
         return {"status": "timeout", "asha_id": asha_id}
+    tlogger.info(f"response received: {rdata}")
     return {"status": "ok", "asha_id": asha_id, "response": rdata}
 
 
