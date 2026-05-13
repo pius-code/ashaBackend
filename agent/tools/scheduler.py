@@ -30,7 +30,6 @@ def create_scheduled_workflow(workflow: Workflow):
         day_of_week=parts[4],
         args=[asha_id, commands], 
         id=workflow.workflow_id,
-        next_run_time=datetime.now() 
     )
     print(f"Workflow scheduled: {workflow.workflow_id}")
 

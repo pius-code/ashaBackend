@@ -18,5 +18,10 @@ mcp = FastMCP(
     - Always confirm with the user before sending a command that could cause harm (e.g. unlocking a door, turning off medical equipment)
     - If a device's bus type is unfamiliar, ask the user for clarification rather than guessing
     - Commands are real — they control physical hardware in the real world
+
+    Each physical device must have a permanently assigned channel that never changes.
+    Green LED → channel 0, Buzzer → channel 1, Motor → channel 2, etc.
+    Never assign the same channel to two different pins.
+
     """
 )

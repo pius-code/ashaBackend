@@ -9,7 +9,7 @@ from agent.schema.workflow import Workflow
 
 
 def get_user_id() -> str:
-    return "69e9de328ab270d2e2416395"
+    return "dc9e148e-e97d-4d55-839a-4ff927a87b41"
 
 
 @mcp.tool
@@ -96,7 +96,20 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
                                   → returns ledc_duty only, analog_note explains why analog_avg is absent
 
 
-    ──────────────────────────────────────────
+    ────────────────────────────────────────                                  
+    ANALOG (bus: "Analog")
+        Use for: water level sensors, soil moisture, light sensors, potentiometers
+        Payload:
+        {"pin": <pin>, "action": "analog"} with wait_response=True
+
+        Note: Analog is read-only. Pin must be GPIO 32-39.
+        Response:
+        value → 0-4095 (0 = no signal, 4095 = maximum voltage 3.3V)
+
+        Example:
+        Read water level → {"pin": 34, "action": "analog"} wait_response=True
+
+    ────────────────────────────────────────
 
     I2C WRITE (bus: "I2C")
     Use for: OLEDs, LCD displays, smart sensors (BME280, MPU6050), RTCs
@@ -209,6 +222,9 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     7. When user wants to control multiple devices at once, always use batch
     8. When user wants a timed sequence (e.g. "turn on for 5 seconds"), use batch with delay_ms
     9. When user wants to READ a sensor value, set wait_response=True. Only use this for read operations (value: -1). Never use it for write commands.
+    10. Each physical device must have a permanently assigned channel that never changes.
+    Green LED → channel 0, Buzzer → channel 1, Motor → channel 2, etc.
+    Never assign the same channel to two different pins.
 
     """
     response = publish_to_device(asha_id, payload, wait_response=wait_response)
@@ -257,7 +273,12 @@ def create_a_scheduled_workflow(workflow: Workflow):
     1. Always use pins from get_user_projects_and_devices() — never guess
     2. Generate a unique workflow_id every time
     3. Match action payload structure to the device bus type exactly
-    4. If user says "turn on at X and off at Y" — create TWO separate workflows
+    4. If the user wants a simple ON/OFF cycle (e.g. "on for 1 min then off"), 
+        use ONE workflow with a batch command containing the full sequence including delay_ms.
+        Example: on for 1 min, off → 
+        actions: [{"pin":18,"action":"digital","value":1}, {"delay_ms":60000}, {"pin":18,"action":"digital","value":0}]
+        Only create TWO separate workflows if the on-time and off-time are at specific clock times 
+        (e.g. "turn on at 6am and off at 10pm").
     5. If the repeat frequency is ambiguous ("do this repeatedly", "do this often") — 
        ask the user to clarify before creating the workflow. 
        Ask: "How often should this run? For example: every hour, every day at 6am, every 30 minutes."
@@ -294,6 +315,9 @@ def create_a_real_time_task(asha_id: str, payload: dict):
         asha.analogRead(pin)    — returns 0 to 4095 (ADC pins GPIO 32-39 only)
         asha.ledcRead(channel)  — returns current PWM duty (0 = off, >0 = on, -1 = not initialized)
         asha.sleep(ms)          — pause for ms milliseconds, yields to OS scheduler
+                                NOTE: For sensor monitoring loops, use minimum 5000ms (5 seconds).
+                                  Using very small values (< 100ms) in infinite loops will 
+                                  overload the device. Soil/water sensors: 30000ms recommended.
         millis()                — returns device uptime in milliseconds
         print(...)              — prints to device Serial output
 

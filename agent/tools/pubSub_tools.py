@@ -8,6 +8,7 @@ _pending = {}
 
 def publish_to_device(asha_id: str, payload: dict, wait_response: bool = False):
     topic = f"asha/commands/{asha_id}"
+    tlogger.info(payload)
 
     if not wait_response:
         result = client.publish(topic, json.dumps(payload))
