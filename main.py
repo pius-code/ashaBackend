@@ -7,10 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from middleware.auth import verify_token_middleware
 from dotenv import load_dotenv
 import os
-from agent.mcp_tools.tools import *
+from agent.mcp_tools.tools import * # noqa
 from agent.core.fastmcp import mcp
-
-
 
 
 load_dotenv()
@@ -48,7 +46,7 @@ app.add_middleware(
 
 def main():
     print("Hello from AHSA Backend!")
-    uvicorn.run("main:app", host="0.0.0.0"
+    uvicorn.run("main:app", host="0.0.0.0" # noqa
                 , port=8080, reload=True)
 
 

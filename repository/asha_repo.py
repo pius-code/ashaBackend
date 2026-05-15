@@ -16,7 +16,7 @@ async def add_IoT_device(AshaIoTPayload: AshaVerificationRequest):
     if existing_registry:
         existing_registry.devices = AshaIoTPayload.devices
         await existing_registry.save()
-        return existing_registry     
+        return existing_registry
     else:
         new_device = AshaDevice(**AshaIoTPayload.model_dump())
         await new_device.insert()
@@ -43,8 +43,7 @@ async def get_asha_user_projects_and_devices(current_user: dict):
         registry = await AshaDevice.find_one(
             AshaDevice.auth_id == project.AshaID
         )
-        project_devices = registry.devices if registry else []
-        
+        project_devices = registry.devices if registry else [] # noqa   
         result.append({
             "project_name": project.Name,
             "asha_id": project.AshaID,

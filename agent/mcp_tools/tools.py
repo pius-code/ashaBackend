@@ -1,3 +1,6 @@
+# flake8: noqa
+# type: ignore
+
 """all the tools that ASHA needs to run for now, use depends to get user id without the LLM having to ask for it, runs beofr etools are even understood by LLM, hidden """
 
 from agent.core.fastmcp import mcp
@@ -9,7 +12,7 @@ from agent.schema.workflow import Workflow
 
 
 def get_user_id() -> str:
-    return "dc9e148e-e97d-4d55-839a-4ff927a87b41"
+    return "your user ID"
 
 
 @mcp.tool

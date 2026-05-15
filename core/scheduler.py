@@ -1,6 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.mongodb import MongoDBJobStore
-import os 
+import os
 from dotenv import load_dotenv
 
 load_dotenv()

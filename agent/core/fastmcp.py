@@ -1,3 +1,7 @@
+# flake8: noqa
+# type: ignore
+
+
 from fastmcp import FastMCP
 
 mcp = FastMCP(

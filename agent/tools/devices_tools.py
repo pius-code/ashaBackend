@@ -8,6 +8,7 @@ from model import document_models as all_models
 
 _db_initialized = False
 
+
 async def init_db_if_needed():
     global _db_initialized
     if not _db_initialized:
@@ -19,6 +20,7 @@ async def init_db_if_needed():
         )
         _db_initialized = True
 
+
 async def get_asha_user_projects_and_devices():
     await init_db_if_needed()
     user_projects = await Project.find(
@@ -29,8 +31,7 @@ async def get_asha_user_projects_and_devices():
         registry = await AshaDevice.find_one(
             AshaDevice.auth_id == project.AshaID
         )
-        project_devices = registry.devices if registry else []
-        
+        project_devices = registry.devices if registry else []    
         result.append({
             "project_name": project.Name,
             "asha_id": project.AshaID,

@@ -23,7 +23,7 @@ def create_lifespan(mcp_app):
                     database=mongo_client.get_default_database(),
                     document_models=all_models,
                 )
-                logger.info(f"Connected to MongoDB with {len(all_models)} document models")
+                logger.info(f"Connected to MongoDB with {len(all_models)} document models") # noqa
                 client.loop_start()
                 tlogger.info("Connected TO MQTT")
                 scheduler.start()

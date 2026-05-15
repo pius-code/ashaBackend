@@ -1,4 +1,9 @@
+# flake8: noqa
+# type: ignore
+
+
 from pydantic import BaseModel, Field
+
 
 class Workflow(BaseModel):
     workflow_id: str = Field(

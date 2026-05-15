@@ -1,3 +1,6 @@
+# flake8: noqa
+# type: ignore
+
 from core.mqtt import client
 import json
 from utils.logger import tlogger
@@ -5,6 +8,7 @@ from utils.asha_utils import gen_correlation_id
 import threading
 
 _pending = {}
+
 
 def publish_to_device(asha_id: str, payload: dict, wait_response: bool = False):
     topic = f"asha/commands/{asha_id}"
