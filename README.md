@@ -4,7 +4,7 @@
 
 The backend for **Asha** — a framework that lets your hardware talk to AI.
 
-Asha bridges ESP32 devices and Claude via MQTT, exposing an MCP (Model Context Protocol) server so an AI agent can directly control and monitor your hardware through natural conversation.
+Asha connects IoT devices and LLM via MQTT, exposing an MCP (Model Context Protocol) server so an AI agent can directly control and monitor your hardware through natural conversation.
 
 ---
 
