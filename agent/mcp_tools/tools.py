@@ -9,6 +9,7 @@ from agent.tools.devices_tools import get_asha_user_projects_and_devices
 from agent.tools.pubSub_tools import publish_to_device
 from agent.tools.scheduler import create_scheduled_workflow, delete_workflow
 from agent.schema.workflow import Workflow
+from agent.tools.Http_tools import post, url
 
 
 def get_user_id() -> str:
@@ -313,23 +314,25 @@ def create_a_real_time_task(asha_id: str, payload: dict):
     separate from the MQTT connection. The script has access to hardware via the `asha` module.
 
     AVAILABLE LUA FUNCTIONS:
-        asha.command(jsonStr)   — send a hardware command (see formats below)
-        asha.digitalRead(pin)   — returns 0 or 1 (use for GPIO/digital pins only)
-        asha.analogRead(pin)    — returns 0 to 4095 (ADC pins GPIO 32-39 only)
-        asha.ledcRead(channel)  — returns current PWM duty (0 = off, >0 = on, -1 = not initialized)
-        asha.sleep(ms)          — pause for ms milliseconds, yields to OS scheduler
-                                NOTE: For sensor monitoring loops, use minimum 5000ms (5 seconds).
-                                  Using very small values (< 100ms) in infinite loops will 
-                                  overload the device. Soil/water sensors: 30000ms recommended.
-        millis()                — returns device uptime in milliseconds
-        print(...)              — prints to device Serial output
+        asha.command(jsonStr)       — send a hardware command (see formats below)
+        asha.digitalRead(pin)       — returns 0 or 1 (use for GPIO/digital pins only)
+        asha.analogRead(pin)        — returns 0 to 4095 (ADC pins GPIO 32-39 only)
+        asha.ledcRead(channel)      — returns current PWM duty (0 = off, >0 = on, -1 = not initialized)
+        asha.subscribe(topic)       — subscribe to an MQTT topic to receive external messages
+        asha.readMessage(topic)     — returns the last message received on a subscribed topic, or ""
+        asha.sleep(ms)              — pause for ms milliseconds, yields to OS scheduler
+        millis()                    — returns device uptime in milliseconds
+        print(...)                  — prints to device Serial output
 
     CRITICAL — asha.sleep() IS MANDATORY IN ALL WHILE LOOPS:
     The ESP32 has a watchdog timer that reboots the device if the background OS task
     does not get CPU time within ~5 seconds. A tight while loop with no sleep will
     always trigger this and reboot the device. Every while loop MUST call asha.sleep().
     Minimum recommended: asha.sleep(10) — 10ms is enough to feed the watchdog.
-    There are no exceptions to this rule. A loop without asha.sleep() will always crash.
+    asha.sleep() is also the point where a running script gets replaced — when a new
+    script arrives, the next sleep() call stops the current script cleanly.
+    There are no exceptions to this rule. A loop without asha.sleep() will always crash
+    and cannot be replaced remotely.
 
     LUA SYNTAX BASICS:
         Variables:      local x = 10
@@ -340,14 +343,44 @@ def create_a_real_time_task(asha_id: str, payload: dict):
         And / Or:       and / or (not && / ||)
 
     NOTE ON WHILE LOOPS:
-    While loops are safe for MQTT (they run on a separate core), but the ESP32 cannot
-    receive a new Lua script until the current loop exits. Only use an infinite loop if
-    the behavior should run until the device is rebooted or reflashed.
+    When a new Lua script is sent while a while loop is already running, the device
+    stops the current script at the next asha.sleep() call and immediately runs the
+    new one. You do NOT need to worry about the old script blocking the new one —
+    this is handled automatically by the firmware.
+
+    MERGING REAL-TIME CONDITIONS — IMPORTANT:
+    If a real-time Lua script was already sent earlier in this conversation, do NOT
+    send a second independent script. The device runs only one Lua script at a time.
+    Instead, MERGE the new condition into the existing script and send one combined
+    replacement. The user will experience all behaviors running simultaneously.
+
+    Example — button script already running, user adds touch sensor condition:
+
+        WRONG — two separate scripts (second replaces first, button behavior is lost):
+            Script 1: while true do ... button logic ... end
+            Script 2: while true do ... touch logic ... end
+
+        CORRECT — one merged script with both conditions:
+            while true do
+              local btn = asha.digitalRead(21)
+              local touch = asha.analogRead(34)
+              if btn == 1 then
+                asha.command('{"pin": 18, "action": "digital", "value": 1}')
+              end
+              if touch > 3000 then
+                asha.command('{"pin": 25, "action": "digital", "value": 1}')
+              end
+              asha.sleep(10)
+            end
+
+    Always check conversation history before sending. If a real-time script exists,
+    include all its conditions in the new script.
 
     READING HARDWARE STATE:
         Digital pin:     local val = asha.digitalRead(pin)   — 0 or 1
         Analog sensor:   local val = asha.analogRead(pin)    — 0 to 4095 (ADC pins only)
         PWM device:      local val = asha.ledcRead(channel)  — 0 = off, >0 = on, -1 = not initialized
+        External topic:  local val = asha.readMessage(topic) — last MQTT message on topic, or ""
         Do NOT use asha.command() for reading — it sends commands, returns nothing to Lua.
 
     ORDERING RULE FOR ledcRead:
@@ -400,7 +433,7 @@ def create_a_real_time_task(asha_id: str, payload: dict):
               asha.command('{"pin": 25, "action": "digital", "value": 1}')
             end
 
-        Persistent button monitor (runs until reboot — asha.sleep() is mandatory):
+        Persistent button monitor (runs until replaced or rebooted):
             while true do
               local btn = asha.digitalRead(21)
               if btn == 1 then
@@ -423,5 +456,122 @@ def create_a_real_time_task(asha_id: str, payload: dict):
               end
               asha.sleep(10)
             end
+
+        Vision + button merged (both conditions in one script):
+            asha.subscribe('asha/asha_vision/abc123')
+            while true do
+              local detected = asha.readMessage('asha/asha_vision/abc123')
+              local btn = asha.digitalRead(21)
+              if detected == 'person' then
+                asha.command('{"pin": 25, "action": "digital", "value": 1}')
+              end
+              if btn == 1 then
+                asha.command('{"pin": 18, "action": "digital", "value": 1}')
+              end
+              asha.sleep(200)
+            end
     """
     publish_to_device(asha_id, payload)
+
+
+
+
+@mcp.tool
+async def asha_vision(payload: dict):
+    """Start a server-side vision detection task that publishes detected class names
+    to the device over MQTT. Call this BEFORE create_a_real_time_task when the user
+    wants to react to something seen by a camera (person, animal, object, etc.).
+
+    PREREQUISITES:
+    Always call get_user_projects_and_devices() first unless you have already called
+    it in this conversation. Never guess the asha_id.
+
+    WHAT THIS TOOL DOES:
+    Starts a vision model on the server that watches for the specified classes.
+    When a class is detected above the confidence threshold, the server publishes
+    the class name as a string to the MQTT topic:
+        asha/asha_vision/{asha_id}
+
+    The server also subscribes to this same topic to coordinate state.
+    The message published is the detected class name exactly as you specified it
+    in the classes array — e.g. if classes = ["person", "crow"], the message
+    will be either "person" or "crow".
+
+    EXTRACTING CLASSES FROM USER QUERY:
+    Pull out the physical objects the user wants to detect. Keep them short and
+    lowercase — single words where possible.
+
+        User says: "if you see a person or a crow in the farm, sound the alarm"
+        → classes: ["person", "crow"]
+
+        User says: "alert me when a car enters the driveway"
+        → classes: ["car"]
+
+    CONSTRUCTING asha_topic:
+    Take the asha_id from get_user_projects_and_devices and build the topic string:
+        asha_topic = 'asha/asha_vision/' + asha_id
+
+        e.g. if asha_id is "abc123", then asha_topic is "asha/asha_vision/abc123"
+
+    PAYLOAD FORMAT:
+        {
+            "classes": ["person", "crow"],
+            "confidence": 0.65,
+            "asha_topic": 'asha/asha_vision/{asha_id}'
+        }
+
+    TWO-STEP FLOW — always do both steps:
+
+    STEP 1: Call asha_vision with the classes payload.
+    STEP 2: Call create_a_real_time_task with a Lua script that:
+            - subscribes to asha_topic using asha.subscribe()
+            - loops and reads messages using asha.readMessage()
+            - reacts when the message matches a detected class
+
+    WHAT asha.readMessage() RETURNS ON THIS TOPIC:
+        "person"   — if a person was detected
+        "crow"     — if a crow was detected
+        ""         — empty string when nothing has been detected yet
+
+    EXAMPLE — person detected → turn on light (pin 18), asha_id = "abc123":
+
+        STEP 1 payload:
+            {
+                "classes": ["person"],
+                "confidence": 0.65,
+                "asha_topic": 'asha/asha_vision/abc123'
+            }
+
+        STEP 2 Lua script (pass to create_a_real_time_task):
+            asha.subscribe("asha/asha_vision/abc123")
+            while true do
+              local detected = asha.readMessage('asha/asha_vision/abc123')
+              if detected == "person" then
+                asha.command('{"pin": 18, "action": "digital", "value": 1}')
+              end
+              asha.sleep(200)
+            end
+
+    EXAMPLE — person OR crow detected → sound buzzer (pin 23), asha_id = "abc123":
+
+        STEP 1 payload:
+            {
+                "classes": ["person", "crow"],
+                "confidence": 0.65,
+                "asha_topic": 'asha/asha_vision/abc123'
+            }
+
+        STEP 2 Lua script:
+            asha.subscribe("asha/asha_vision/abc123")
+            while true do
+              local detected = asha.readMessage('asha/asha_vision/abc123')
+              if detected == "person" or detected == "crow" then
+                asha.command('{"pin": 23, "action": "digital", "value": 1}')
+              end
+              asha.sleep(200)
+            end
+
+    NOTE: asha.sleep(200) in the loop is mandatory. See create_a_real_time_task
+    for the full explanation of why tight loops crash the device.z
+    """
+    await post(url, payload)

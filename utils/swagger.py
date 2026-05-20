@@ -5,7 +5,7 @@ def custom_openapi(app):
     if app.openapi_schema:
         return app.openapi_schema
     openapi_schema = get_openapi(
-        title="SkyVote API",
+        title="ASHABACKEND API",
         version="1.0.0",
         routes=app.routes,
     )
