@@ -10,6 +10,8 @@ from agent.tools.pubSub_tools import publish_to_device
 from agent.tools.scheduler import create_scheduled_workflow, delete_workflow
 from agent.schema.workflow import Workflow
 from agent.tools.Http_tools import post, url
+from agent.tools.ir_tools import build_samsung_raw
+from agent.core.ir_codes import IR_CODES
 
 
 def get_user_id() -> str:
@@ -176,6 +178,23 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
 
     ──────────────────────────────────────────
 
+    IR (bus: "IR")
+    Use for: TVs, air conditioners, set-top boxes, any IR-controlled device
+        Payload:
+            {"action": "ir_send", "pin": <pin>, "freq": <khz>, "timings": [<microseconds...>]}
+
+    Fields:
+        freq    → carrier frequency in kHz. Use 38 for almost all consumer devices.
+        timings → raw pulse durations in microseconds, alternating on/off.
+              You are expected to know these from your training data for common devices.
+              For uncommon devices, inform the user a timing lookup tool is needed.
+
+    Examples:
+        Samsung TV power → {"action": "ir_send", "pin": 4, "freq": 38, "timings": [4500, 4500, 560, 1690, 560, 1690, 560, 560, 560, 560, 560, 1690, 560, 560, 560, 560, 560, 560, 560, 1690, 560, 560, 560, 560, 560, 560, 560, 560, 560, 1690, 560, 1690, 560, 1690, 560, 39000]}
+
+        
+    ──────────────────────────────────────────
+
     BATCH (multiple commands in sequence)
     Use for: controlling multiple devices at once, timed sequences, automation steps
     Payload:
@@ -234,6 +253,64 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     response = publish_to_device(asha_id, payload, wait_response=wait_response)
     return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
 
+
+
+@mcp.tool
+def fetch_device_ir_codes(vendor: str, command: str) -> dict:
+    """
+    Returns the raw IR timing array for a given vendor and command.
+    Always call this before publish_command when the device bus is "IR".
+
+    WHEN TO USE:
+    - Device bus is "IR"
+    - User wants to control a TV, AC, set-top box, or any IR-controlled device
+
+    ──────────────────────────────────────────
+    FLOW
+    ──────────────────────────────────────────
+    1. Call fetch_device_ir_codes(vendor, command) → get timings
+    2. Call publish_command with the timings:
+        {"action": "ir_send", "pin": <pin>, "freq": <freq from response>, "timings": <timings from response>}
+
+    ──────────────────────────────────────────
+    AVAILABLE VENDORS AND COMMANDS
+    ──────────────────────────────────────────
+    samsung:
+        power        → toggle TV on/off
+        volume_up    → increase volume
+        volume_down  → decrease volume
+        mute         → toggle mute
+        channel_up   → next channel
+        channel_down → previous channel
+        hdmi1        → switch to HDMI 1
+        hdmi2        → switch to HDMI 2
+
+    NOTE: More vendors (LG, Sony, Panasonic) will be added via the dashboard.
+    If the vendor or command is not listed, inform the user it is not yet supported.
+
+    ──────────────────────────────────────────
+    EXAMPLE
+    ──────────────────────────────────────────
+    User: "Turn off the Samsung TV"
+
+    Step 1 → fetch_device_ir_codes("samsung", "power")
+    Response: {"vendor": "samsung", "command": "power", "freq": 38, "timings": [4500, 4500, ...]}
+
+    Step 2 → publish_command(
+        asha_id="299c90fc-...",
+        payload={"action": "ir_send", "pin": 19, "freq": 38, "timings": [4500, 4500, ...]}
+    )
+    """
+    vendor = vendor.lower()
+    command = command.lower()
+
+    if vendor not in IR_CODES:
+        return {"error": f"Vendor '{vendor}' not supported yet."}
+    if command not in IR_CODES[vendor]:
+        return {"error": f"Command '{command}' not found for vendor '{vendor}'."}
+
+    timings = build_samsung_raw(IR_CODES[vendor][command])
+    return {"vendor": vendor, "command": command, "freq": 38, "timings": timings}
 
 
 @mcp.tool

@@ -36,5 +36,5 @@ async def get_all_devices_for_project_by_logged_in_user(current_user: dict = Dep
 
 
 @router.post("/get_project_and_devices")
-async def get_project_and_devices(current_user: dict = Depends(get_current_user)):
+async def get_project_and_devices(current_user: dict = Depends(get_current_user)): # noqa
     return await get_asha_user_projects_and_devices(current_user)
