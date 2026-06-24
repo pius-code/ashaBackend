@@ -24,14 +24,14 @@ async def init_db_if_needed():
 async def get_asha_user_projects_and_devices():
     await init_db_if_needed()
     user_projects = await Project.find(
-        Project.Created_by == "6a0c5771e3ec82b6d03df6a8"
+        Project.Created_by == "69e9de328ab270d2e2416395"
     ).to_list()
     result = []
     for project in user_projects:
         registry = await AshaDevice.find_one(
             AshaDevice.auth_id == project.AshaID
         )
-        project_devices = registry.devices if registry else []  
+        project_devices = registry.devices if registry else []
         result.append({
             "project_name": project.Name,
             "asha_id": project.AshaID,
