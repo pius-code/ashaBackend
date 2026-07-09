@@ -32,16 +32,7 @@ uv sync
 cp .env.example .env
 ```
 
-Required environment variables:
-
-| Variable                      | Description                                    |
-| ----------------------------- | ---------------------------------------------- |
-| `MONGO_URL`                   | MongoDB connection string                      |
-| `JWT_SECRET_KEY`              | Secret for signing JWT tokens                  |
-| `JWT_ALGORITHM`               | JWT algorithm (e.g. `HS256`)                   |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry duration                          |
-| `FRONTEND_URL`                | CORS origin (default: `http://localhost:3000`) |
-| `ENV`                         | Set to `development` to enable Swagger docs    |
+See the [Environment variables](#environment-variables) section below for all required values.
 
 ---
 
@@ -82,10 +73,12 @@ The AI-facing side. LLM connects to the MCP server and gets access to tools for 
 | Tool                            | What it does                                                                                 |
 | ------------------------------- | -------------------------------------------------------------------------------------------- |
 | `get_user_projects_and_devices` | Lists all projects and connected devices with their pin/bus metadata                         |
-| `publish_command`               | Sends a command to a device over MQTT (digital, PWM, analog, I2C, SPI, UART, batch, or Lua)  |
+| `publish_command`               | Sends a command to a device over MQTT (digital, PWM, stop_pwm, I2C, SPI, UART, batch, Lua)  |
+| `create_a_real_time_task`       | Pushes a Lua script to the device for event-driven logic (button presses, sensor thresholds, publishing sensor data back) |
 | `create_a_scheduled_workflow`   | Schedules a cron-based automation (e.g. turn on lights every day at 6am)                     |
 | `delete_Workflow`               | Removes a scheduled workflow                                                                 |
-| `create_a_real_time_task`       | Pushes a Lua script to the device for event-driven logic (button presses, sensor thresholds) |
+| `fetch_device_ir_codes`         | Returns raw IR timing arrays for a vendor + command (Samsung TV, etc.)                       |
+| `asha_vision`                   | Starts a server-side vision detection task that publishes detected class names over MQTT      |
 
 The agent understands the full workflow: discover devices → determine what the user wants → construct the right payload → publish the command.
 
@@ -112,18 +105,53 @@ ESP32 Devices
      │  MQTT (pub/sub)
      ▼
 MQTT Broker
+     │  asha/commands/<ashaID>   ← agent sends commands down
+     │  asha/sensorData/<ashaID> ← device pushes sensor data up
      │
      ▼
 Asha Backend (main.py)
-  ├── FastAPI REST API   ← user/device/project management
-  └── MCP Server         ← Claude connects here
-          │
-          ▼
-        Claude
+  ├── FastAPI REST API      ← user/device/project management
+  ├── MCP Server            ← agent connects here
+  └── MQTT Subscriber       ← listens on asha/sensorData/+
+        │ on message: lookup phone number by ashaID
+        │ POST { phone, asha_id, sensor_data }
+        ▼
+  Frontend HTTP endpoint    ← triggers LLM with sensor context
+        │
+        ▼
+  WhatsApp (user's phone)
 ```
+
+### Sensor data flow
+
+When a Lua script on the device calls `asha.publish("asha/sensorData/<ashaID>", value)`:
+
+1. MQTT subscriber in `core/mqtt.py` receives the message
+2. Extracts `ashaID` from the topic
+3. Queries MongoDB for the `PhoneNumber` tied to that ashaID (`repository/projects.py`)
+4. POSTs `{ phone, asha_id, sensor_data }` to the frontend sensor trigger endpoint
+5. Frontend runs a lightweight LLM handler that injects the sensor data as a `[SENSOR]` user message, loads the user's conversation history from Redis, and replies via WhatsApp
+
+**Note:** The `Project` model requires a `PhoneNumber` field — this is set when creating a project and is the WhatsApp number the backend uses to route sensor data back to the right user.
+
+---
+
+## Environment variables
+
+| Variable                      | Description                                    |
+| ----------------------------- | ---------------------------------------------- |
+| `MONGO_URL`                   | MongoDB connection string                      |
+| `JWT_SECRET_KEY`              | Secret for signing JWT tokens                  |
+| `JWT_ALGORITHM`               | JWT algorithm (e.g. `HS256`)                   |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry duration                          |
+| `FRONTEND_URL`                | CORS origin (default: `http://localhost:3000`) |
+| `MQTT_IP`                     | MQTT broker IP address                         |
+| `MQTT_PORT`                   | MQTT broker port (default: 1883)               |
+| `ENV`                         | Set to `development` to enable Swagger docs    |
 
 ---
 
 ## TODOs
 
+- [ ] Implement the frontend `/sensor-trigger` endpoint and lightweight LLM handler for device-originated messages
 - [ ] Add a tool to let the agent schedule cron jobs that trigger the LLM itself (sampling support) — useful for the agent to reason periodically on its own without the user triggering it

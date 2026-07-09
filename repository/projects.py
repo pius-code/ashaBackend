@@ -18,3 +18,8 @@ async def create_an_asha_project(projectdet: projectCreate, current_user: dict):
 async def get_all_asha_projects():
     all_projects = await Project.find_all().to_list()
     return all_projects
+
+
+async def get_phone_by_asha_id(asha_id: str) -> str | None:
+    project = await Project.find_one(Project.AshaID == asha_id)
+    return project.PhoneNumber if project else None

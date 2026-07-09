@@ -51,21 +51,6 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
 
     PWM (bus: "PWM")
     Use for: servos, DC motors, LED dimming, fans, buzzers
-    To read, add a value of -1 to the payload and set wait_response=True. The device will return the current duty cycle or sensor value.
-    Payload:
-        {"pin": <pin>, "action": "pwm", "channel": <0-15>, "freq": <hz>, "duty": <0-65535>}
-
-    Frequency and duty by device type:
-        LED/Backlight dimming → freq: 5000,  duty: 0 (off) to 65535 (full brightness)
-        DC Motor speed        → freq: 1000,  duty: 0 (stop) to 65535 (full speed)
-        Servo position        → freq: 50,    duty: 3277 (0°) | 4915 (90°) | 6553 (180°)
-        Buzzer tone (440Hz A) → freq: 440,   duty: 32767 (on) | 0 (off)
-        Fan speed             → freq: 1000,  duty: 0 (off) to 65535 (full speed)
-
-    Channel: assign 0-15, one per device. Never reuse a channel for two devices.
-
-    PWM (bus: "PWM")
-    Use for: servos, DC motors, LED dimming, fans, buzzers
     Payload (write):
         {"pin": <pin>, "action": "pwm", "channel": <0-15>, "freq": <hz>, "duty": <0-65535>}
     Payload (read):
@@ -80,6 +65,13 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
 
     Channel: assign 0-15, one per device. Never reuse a channel for two devices.
 
+    STOPPING PWM DEVICES:
+    Setting duty: 0 reduces output but the LEDC hardware signal keeps running — a buzzer
+    will still beep, a motor may still twitch. To fully silence a PWM device, send:
+        {"pin": <pin>, "action": "stop_pwm"}
+    This detaches the LEDC peripheral and drives the pin LOW. Works in publish_command,
+    batch commands, and inside Lua via asha.command('{"pin": 21, "action": "stop_pwm"}').
+
     Read response fields:
         ledc_duty   → what the controller is configured to output (0-65535). Always present.
         analog_avg  → average of 300 physical pin samples (0-4095 = 0-3.3V). Only present if pin is GPIO 32-39.
@@ -88,7 +80,7 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     Fault detection:
         ledc_duty and analog_avg should agree proportionally:
             ledc_duty / 65535 ≈ analog_avg / 4095
-        If ledc_duty is high but analog_avg is near 0 — device is likely faulty .
+        If ledc_duty is high but analog_avg is near 0 — device is likely faulty.
 
     Examples (write):
         LED at 50% brightness → {"pin": 18, "action": "pwm", "channel": 0, "freq": 5000, "duty": 32767}
@@ -97,7 +89,7 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
         Buzzer ON             → {"pin": 22, "action": "pwm", "channel": 3, "freq": 440,  "duty": 128}
 
     Examples (read):
-        Read LED on ADC pin    → {"pin": 34, "action": "pwm", "channel": 0, "value": -1} wait_response=True
+        Read LED on ADC pin     → {"pin": 34, "action": "pwm", "channel": 0, "value": -1} wait_response=True
         Read LED on non-ADC pin → {"pin": 18, "action": "pwm", "channel": 0, "value": -1} wait_response=True
                                   → returns ledc_duty only, analog_note explains why analog_avg is absent
 
@@ -240,7 +232,7 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     2. Never guess a pin — always use the pin from get_user_projects_and_devices()
     3. For PWM, never reuse a channel already assigned to another device. Never send a freq_hz=0 minimum should be 1.
     4. For I2C and SPI, never include a pin field
-    5. When user says "turn on" a PWM LED, use duty: 65535. "Turn off" use duty: 0
+    5. When user says "turn on" a PWM device, use duty: 65535. "Turn off" → send {"pin": <pin>, "action": "stop_pwm"}. Never use duty: 0 to stop a PWM device — it reduces output but LEDC keeps running.
     6. When user says "turn on" a Digital device, use value: 1. "Turn off" use value: 0
     7. When user wants to control multiple devices at once, always use batch
     8. When user wants a timed sequence (e.g. "turn on for 5 seconds"), use batch with delay_ms
@@ -488,6 +480,9 @@ def create_a_real_time_task(asha_id: str, payload: dict):
         PWM:
             asha.command('{"pin": 18, "action": "pwm", "channel": 0, "freq": 5000, "duty": 65535}')
 
+        Stop PWM (fully silences the hardware signal):
+            asha.command('{"pin": 18, "action": "stop_pwm"}')
+
         Batch (multiple commands in sequence):
             asha.command('{"action": "batch", "commands": [{"pin": 18, "action": "digital", "value": 1}, {"delay_ms": 500}, {"pin": 18, "action": "digital", "value": 0}]}')
 
@@ -495,6 +490,9 @@ def create_a_real_time_task(asha_id: str, payload: dict):
             include {"delay_ms": 1000} inside a batch commands array
 
     EXAMPLES:
+
+        Stop buzzer on pin 21 (one-shot — no loop needed):
+            asha.command('{"pin": 21, "action": "stop_pwm"}')
 
         Button press → switch LEDs (runs once):
             local btn = asha.digitalRead(21)
