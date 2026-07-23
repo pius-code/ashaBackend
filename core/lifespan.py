@@ -1,3 +1,4 @@
+import asyncio
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,6 +7,7 @@ from beanie import init_beanie
 from utils.logger import logger, tlogger, xlogger
 from model import document_models as all_models
 from core.mqtt import client
+from utils.mqtt import set_event_loop
 from core.scheduler import scheduler
 from transformers import pipeline as hf_pipeline
 
@@ -25,8 +27,6 @@ def create_lifespan(mcp_app):
                     document_models=all_models,
                 )
                 logger.info(f"Connected to MongoDB with {len(all_models)} document models") # noqa
-                client.loop_start()
-                tlogger.info("Connected TO MQTT")
                 scheduler.start()
                 xlogger.info("scheduler started")
                 logger.info("Loading ASR model...")
@@ -35,6 +35,9 @@ def create_lifespan(mcp_app):
                     model="pius-code/asha_twi_adapter",
                 )
                 logger.info("ASR model loaded and ready")
+                set_event_loop(asyncio.get_running_loop())
+                client.loop_start()
+                tlogger.info("Connected TO MQTT")
                 yield
 
         except Exception as e:

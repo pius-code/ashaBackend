@@ -8,6 +8,7 @@ async def create_an_asha_project(projectdet: projectCreate, current_user: dict):
     new_project = Project(
         Name=projectdet.Name,
         AshaID=generated_id,
+        PhoneNumber=projectdet.PhoneNumber,
         Created_by=current_user["sub"]
     )
 

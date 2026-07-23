@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi import FastAPI
 import uvicorn
 from core.lifespan import create_lifespan
@@ -46,8 +47,9 @@ app.add_middleware(
 
 def main():
     print("Hello from AHSA Backend!")
+    venv_dir = str(Path(__file__).parent / ".venv")
     uvicorn.run("main:app", host="0.0.0.0" # noqa
-                , port=8080, reload=True)
+                , port=8080, reload=True, reload_excludes=[venv_dir])
 
 
 if __name__ == "__main__":

@@ -17,9 +17,10 @@ dependencies = [
     "fastmcp>=3.2.4",
     "pywin32>=311",
     "apscheduler>=3.11.2",
-    "numpy>=2.5.0",
+    "numpy>=2.0,<2.5",
     "soundfile>=0.14.0",
     "transformers>=5.12.1",
     "torch>=2.12.1",
     "requests>=2.34.2",
+    "librosa>=0.11.0",
 ]

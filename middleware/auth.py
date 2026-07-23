@@ -17,7 +17,8 @@ PUBLIC_PATHS = [
     "/openapi.json",
     "/api/v1/users/create",
     "/api/v1/users/login",
-    "/api/v1/asha/verify_and_register_device"
+    "/api/v1/asha/verify_and_register_device",
+    "/api/v1/asha/twi_transcribe"
 ]
 
 
