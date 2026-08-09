@@ -53,7 +53,8 @@ async def get_asha_user_projects_and_devices(current_user: dict):
                     "metadata": d.metadata,
                     "category": d.category,
                     "bus": d.bus,
-                    "pin": d.pin
+                    "pin": d.pin,
+                    **({"sck": d.sck, "miso": d.miso, "mosi": d.mosi, "cs": d.cs} if d.bus == "SPI" else {})
                 }
                 for d in project_devices
             ]

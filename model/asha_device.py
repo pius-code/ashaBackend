@@ -1,5 +1,5 @@
 from beanie import Document
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 
@@ -9,6 +9,10 @@ class DeviceInfo(BaseModel):
     category: str
     metadata: str
     bus: str
+    sck: Optional[int] = None
+    miso: Optional[int] = None
+    mosi: Optional[int] = None
+    cs: Optional[int] = None
 
 
 class AshaDevice(Document):

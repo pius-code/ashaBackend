@@ -118,23 +118,50 @@ Examples:
 
 ──────────────────────────────────────────
 
-SPI WRITE (bus: "SPI")
-Use for: TFT displays, SD cards, fast ADC chips
-Payload:
-    {"action": "spi_write", "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}
+SPI (bus: "SPI")
+Use for: RFID readers, TFT displays, SD cards, fast ADC chips
 
-Note: SPI does NOT use a pin field. Uses cs_pin to target the device.
-MOSI=GPIO23, MISO=GPIO19, CLK=GPIO18 are fixed. Only cs_pin changes per device.
+IMPORTANT — SPI pins are per-device, not fixed.
+Always read cs_pin, sck, miso, mosi from get_user_projects_and_devices() for the specific SPI device.
+Never assume default pins.
+
+SPI WRITE:
+Payload:
+    {"action": "spi_write", "cs_pin": <cs>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}
+
+SPI READ:
+Payload:
+    {"action": "spi_read", "cs_pin": <cs>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}
+
+How spi_read works: SPI is full-duplex — every byte you send, a byte comes back simultaneously.
+The "data" array contains the bytes to send. The device clocks back a response byte for each one.
+First byte is usually the register address. Remaining bytes are dummy (0x00) to clock the response back.
+
+Read/write bit convention varies by device — check the datasheet:
+    RC522 RFID  → bit 7 of address = 1 means read  (e.g. register 0x37 → send 0xB7 to read)
+    Some devices → bit 7 = 0 means read
+    Some devices → use a separate command byte entirely
+Always look this up before reading. Wrong convention = garbage response.
 
 Speed by device:
+    RC522 RFID   → speed: 1000000  (1MHz)
     SD card      → speed: 25000000 (25MHz)
     TFT display  → speed: 40000000 (40MHz)
-    Slow devices → speed: 1000000  (1MHz)
 
-Mode is almost always 0. Check datasheet if device behaves unexpectedly.
+Mode: 0 for almost all devices. Check datasheet if readings look wrong.
 
-Example:
-    Write to SD card → {"action": "spi_write", "cs_pin": 5, "speed": 25000000, "mode": 0, "data": [1, 2, 3]}
+Examples:
+    Read RC522 firmware version (register 0x37):
+        {"action": "spi_read", "cs_pin": 26, "speed": 1000000, "mode": 0, "data": [183, 0]}
+        → 183 = 0xB7 (0x37 | 0x80, read bit set). Second 0 is dummy byte to clock response back.
+        → Response byte 2 should be 0x91 (v1.0) or 0x92 (v2.0) if wiring is correct.
+
+    Write to SD card:
+        {"action": "spi_write", "cs_pin": 5, "speed": 25000000, "mode": 0, "data": [1, 2, 3]}
+
+NOTE: spi_read via publish_command is for one-off reads.
+For continuous SPI polling (e.g. RFID card detection loop), use asha.spiTransfer() in a Lua script
+via create_a_real_time_task — it returns bytes directly to Lua without an MQTT round-trip.
 
 ──────────────────────────────────────────
 
@@ -220,16 +247,60 @@ You write a Lua script as a string. The ESP32 runs it on a dedicated core (Core 
 separate from the MQTT connection. The script has access to hardware via the `asha` module.
 
 AVAILABLE LUA FUNCTIONS:
-    asha.command(jsonStr)           — send a hardware command (see formats below)
-    asha.publish(topic, message)    — publish a string to an MQTT topic (thread-safe, non-blocking)
-    asha.digitalRead(pin)           — returns 0 or 1 (use for GPIO/digital pins only)
-    asha.analogRead(pin)            — returns 0 to 4095 (ADC pins GPIO 32-39 only)
-    asha.ledcRead(pin)              — returns current PWM duty (0 = off or not initialized, >0 = running)
-    asha.subscribe(topic)           — subscribe to an MQTT topic to receive external messages
-    asha.readMessage(topic)         — returns the last message received on a subscribed topic, or ""
-    asha.sleep(ms)                  — pause for ms milliseconds, yields to OS scheduler
-    millis()                        — returns device uptime in milliseconds
-    print(...)                      — prints to device Serial output
+    asha.command(jsonStr)               — send a hardware command (see formats below)
+    asha.publish(topic, message)        — publish a string to an MQTT topic (thread-safe, non-blocking)
+    asha.digitalRead(pin)               — returns 0 or 1 (use for GPIO/digital pins only)
+    asha.analogRead(pin)                — returns 0 to 4095 (ADC pins GPIO 32-39 only)
+    asha.ledcRead(pin)                  — returns current PWM duty (0 = off or not initialized, >0 = running)
+    asha.spiTransfer(cs_pin, {bytes})   — sends bytes over SPI, returns table of received bytes (one per sent byte)
+    asha.subscribe(topic)               — subscribe to an MQTT topic to receive external messages
+    asha.readMessage(topic)             — returns the last message received on a subscribed topic, or ""
+    asha.sleep(ms)                      — pause for ms milliseconds, yields to OS scheduler
+    millis()                            — returns device uptime in milliseconds
+    print(...)                          — prints to device Serial output
+
+SPI IN LUA — asha.spiTransfer:
+Use this for continuous SPI polling (e.g. RFID card detection). Returns bytes directly — no MQTT round-trip.
+    local rx = asha.spiTransfer(cs_pin, {byte1, byte2, ...})
+    rx is a table — rx[1] is the byte received while sending byte1, rx[2] while sending byte2, etc.
+
+The read/write bit convention is device-specific — always check the datasheet.
+For RC522: set bit 7 of the register address to 1 for a read (e.g. register 0x37 → send 0xB7).
+Dummy bytes (0x00) after the address are needed to clock the response back from the device.
+
+Example — read RC522 firmware version (wiring sanity check):
+    local cs = 26   -- cs_pin from get_user_projects_and_devices()
+    local rx = asha.spiTransfer(cs, {0xB7, 0x00})
+    -- rx[2] should be 0x91 (v1.0) or 0x92 (v2.0) if wiring is correct
+    asha.publish("asha/ashaSensor/<asha_id>", "RC522 version: " .. tostring(rx[2]))
+
+DEBOUNCE RULE — MANDATORY FOR ALL SPI POLLING LOOPS:
+When an SPI sensor can hold the same state across multiple loop ticks (RFID card
+sitting on the reader, a threshold staying crossed), you MUST use a state variable.
+Without it, the script publishes on EVERY loop tick while the condition is true —
+this floods the agent with duplicate messages and causes a notification loop.
+Track "did state CHANGE?" not "is state true now?":
+
+    local card_present = false  -- tracks what state was LAST tick
+
+    while true do
+        local rx = asha.spiTransfer(cs, {...})
+        local detected = <your condition on rx>
+
+        if detected and not card_present then
+            card_present = true   -- card just ARRIVED → fire exactly once
+            asha.command('{"pin": <light_pin>, "action": "digital", "value": 1}')
+            asha.publish("asha/ashaSensor/<asha_id>", "Someone scanned an RFID card — red light on")
+        elseif not detected and card_present then
+            card_present = false  -- card just LEFT → reset, optionally undo action
+            asha.command('{"pin": <light_pin>, "action": "digital", "value": 0}')
+        end
+
+        asha.sleep(200)
+    end
+
+This is the same principle as the CHANGE-DETECTION PATTERN for digital/analog sensors.
+Never publish unconditionally inside a polling loop — always gate it on a state change.
 
 CRITICAL — asha.sleep() IS MANDATORY IN ALL WHILE LOOPS:
 The ESP32 has a watchdog timer that reboots the device if the background OS task
@@ -294,7 +365,9 @@ READING HARDWARE STATE:
 MONITORING & PUBLISHING BACK TO THE USER
 ──────────────────────────────────────────
 When the user asks to "monitor" a device or "notify me when X changes", use asha.publish()
-to send the state change back. The backend receives it and forwards it to the user's WhatsApp via the LLM.
+to send the state change back. [TEMPORARY — Asha Iris hackathon demo] Asha Iris is
+listening on asha-iris/events/<task_id> and will notify the user across Telegram/email,
+escalating and retrying on its own if they don't respond — not the usual WhatsApp path.
 
 CRITICAL — THE PUBLISH MESSAGE IS A MEMO TO THE LLM, NOT JUST A NOTIFICATION:
 When the script publishes, that message becomes the input to the LLM that wakes up and texts the user.
@@ -311,7 +384,10 @@ BAD:  one message "one of the lights changed"
 GOOD: separate publishes per pin with the exact device name and state
 
 RULES:
-- Always publish to "asha/ashaSensor/<asha_id>" — substitute the actual asha_id string
+[TEMPORARY — Asha Iris hackathon demo, revert to "asha/ashaSensor/<asha_id>" after]
+- Always publish to "asha-iris/events/<task_id>" — substitute the actual task_id
+  string (the SAME task_id already created via Asha Iris's create_unresolved_task
+  tool, not the asha_id — this is what correlates the event back to a task)
 - Only publish when the value CHANGES — compare current vs previous value before publishing
 - Never publish on every loop tick — that spams the user
 - Be specific: name the device, state the change, include user context
@@ -325,7 +401,7 @@ CHANGE-DETECTION PATTERN:
     while true do
       local current = asha.digitalRead(pin)  -- or analogRead, ledcRead
       if current ~= prev then
-        asha.publish("asha/ashaSensor/<asha_id>", "Hey, looks like someone just toggled your light — you might want to check")
+        asha.publish("asha-iris/events/<task_id>", "Hey, looks like someone just toggled your light — you might want to check")
         prev = current
       end
       asha.sleep(100)
@@ -429,9 +505,9 @@ EXAMPLES:
           local state = asha.digitalRead(18)
           if state ~= prev then
             if state == 1 then
-              asha.publish("asha/ashaSensor/<asha_id>", "Hey, looks like someone just turned the light back on")
+              asha.publish("asha-iris/events/<task_id>", "Hey, looks like someone just turned the light back on")
             else
-              asha.publish("asha/ashaSensor/<asha_id>", "Heads up — someone turned off the light, you might want to check")
+              asha.publish("asha-iris/events/<task_id>", "Heads up — someone turned off the light, you might want to check")
             end
             prev = state
           end
@@ -448,13 +524,38 @@ EXAMPLES:
           if level > 2000 then state = 1 end
           if state ~= prev then
             if state == 1 then
-              asha.publish("asha/ashaSensor/<asha_id>", "Heads up — water level is getting high (" .. tostring(level) .. "), might want to check it out")
+              asha.publish("asha-iris/events/<task_id>", "Heads up — water level is getting high (" .. tostring(level) .. "), might want to check it out")
             else
-              asha.publish("asha/ashaSensor/<asha_id>", "All good — water level is back to normal (" .. tostring(level) .. ")")
+              asha.publish("asha-iris/events/<task_id>", "All good — water level is back to normal (" .. tostring(level) .. ")")
             end
             prev = state
           end
           asha.sleep(200)
+        end
+
+    RFID card detection with debounce — light on when card present, publish ONCE per tap:
+        -- Always call get_user_projects_and_devices() first for actual pin values
+        local cs = 26      -- cs_pin of the RFID device
+        local light = 18   -- red light pin
+        local card_present = false
+
+        while true do
+            -- Replace detection bytes with the correct card-presence check for your device.
+            -- For RC522: search datasheet for the REQA/ComIrqReg sequence, or use web search.
+            local rx = asha.spiTransfer(cs, {<detection bytes>})
+            local detected = <condition on rx>
+
+            if detected and not card_present then
+                card_present = true
+                asha.command('{"pin":' .. light .. ',"action":"digital","value":1}')
+                asha.publish("asha/ashaSensor/<asha_id>", "Someone just scanned an RFID card — red light turned on")
+            elseif not detected and card_present then
+                card_present = false
+                asha.command('{"pin":' .. light .. ',"action":"digital","value":0}')
+                asha.publish("asha/ashaSensor/<asha_id>", "RFID card removed — red light off")
+            end
+
+            asha.sleep(200)
         end
 
     Vision + button merged (both conditions in one script):
@@ -596,156 +697,166 @@ async def get_user_projects_and_devices():
     return await get_asha_user_projects_and_devices()
 
 
-@mcp.tool
-async def publish_command(asha_id: str, payload: dict, wait_response: bool = False):
-    """
-    Publishes a command to an ESP32 device via MQTT. Get pin/bus/channel from
-    get_user_projects_and_devices() first — never guess them.
-
-    QUICK PAYLOAD SHAPE BY BUS TYPE:
-        Digital → {"pin": <pin>, "action": "digital", "value": 0|1}  (-1 + wait_response=True to read)
-        PWM     → {"pin": <pin>, "action": "pwm", "freq": <hz>, "duty": <0-65535>}
-                  Stop (not duty:0) → {"pin": <pin>, "action": "stop_pwm"}
-        Analog  → {"pin": <pin>, "action": "analog"} with wait_response=True (read-only, GPIO 32-39)
-        I2C     → {"action": "i2c_write", "addr": <dec>, "reg": <reg>, "data": [<bytes>]}  (no pin field)
-        SPI     → {"action": "spi_write", "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}  (no pin field)
-        UART    → {"action": "uart_write", "baud": <rate>, "tx_pin": 17, "rx_pin": 16, "data": "<str>"|[<bytes>]}
-        IR      → {"action": "ir_send", "pin": <pin>, "freq": <khz>, "timings": [...]}  (get timings from fetch_device_ir_codes)
-        Batch   → {"action": "batch", "commands": [<command>, {"delay_ms": <ms>}, ...]}
-
-    If you're not sure of the exact duty/freq/baud value for a device, the address
-    for an I2C chip, or want worked examples — call get_tool_guide("publish_command")
-    first rather than guessing.
-
-    CORE RULES:
-    1. Match payload structure to bus type exactly; I2C/SPI never include a pin field
-    2. Never guess a pin — always use values from get_user_projects_and_devices()
-    3. Never send freq=0 for PWM (minimum is 1)
-    4. "Turn off" a PWM device → send stop_pwm, not duty:0 (duty:0 leaves the signal running)
-    5. Set wait_response=True only for reads (value:-1, analog, or PWM/I2C reads) — never for writes
-    6. For multiple devices at once or timed sequences, use a single batch command
-    """
-    response = publish_to_device(asha_id, payload, wait_response=wait_response)
-    return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
-
-
-@mcp.tool
-def fetch_device_ir_codes(vendor: str, command: str) -> dict:
-    """
-    Returns the raw IR timing array for a given vendor and command.
-    Always call this before publish_command when the device bus is "IR".
-
-    WHEN TO USE:
-    - Device bus is "IR"
-    - User wants to control a TV, AC, set-top box, or any IR-controlled device
-
-    ──────────────────────────────────────────
-    FLOW
-    ──────────────────────────────────────────
-    1. Call fetch_device_ir_codes(vendor, command) → get timings
-    2. Call publish_command with the timings:
-        {"action": "ir_send", "pin": <pin>, "freq": <freq from response>, "timings": <timings from response>}
-
-    ──────────────────────────────────────────
-    AVAILABLE VENDORS AND COMMANDS
-    ──────────────────────────────────────────
-    samsung:
-        power        → toggle TV on/off
-        volume_up    → increase volume
-        volume_down  → decrease volume
-        mute         → toggle mute
-        channel_up   → next channel
-        channel_down → previous channel
-        hdmi1        → switch to HDMI 1
-        hdmi2        → switch to HDMI 2
-
-    NOTE: More vendors (LG, Sony, Panasonic) will be added via the dashboard.
-    If the vendor or command is not listed, inform the user it is not yet supported.
-
-    ──────────────────────────────────────────
-    EXAMPLE
-    ──────────────────────────────────────────
-    User: "Turn off the Samsung TV"
-
-    Step 1 → fetch_device_ir_codes("samsung", "power")
-    Response: {"vendor": "samsung", "command": "power", "freq": 38, "timings": [4500, 4500, ...]}
-
-    Step 2 → publish_command(
-        asha_id="299c90fc-...",
-        payload={"action": "ir_send", "pin": 19, "freq": 38, "timings": [4500, 4500, ...]}
-    )
-    """
-    vendor = vendor.lower()
-    command = command.lower()
-
-    if vendor not in IR_CODES:
-        return {"error": f"Vendor '{vendor}' not supported yet."}
-    if command not in IR_CODES[vendor]:
-        return {"error": f"Command '{command}' not found for vendor '{vendor}'."}
-
-    timings = build_samsung_raw(IR_CODES[vendor][command])
-    return {"vendor": vendor, "command": command, "freq": 38, "timings": timings}
+# commented out for the Asha Iris hackathon demo — not needed for the escalation
+# flow, restore after the demo
+# @mcp.tool
+# async def publish_command(asha_id: str, payload: dict, wait_response: bool = False):
+#     """
+#     Publishes a command to an ESP32 device via MQTT.
+#
+#     ALWAYS follow these steps in order — do NOT skip any step:
+#     1. Call get_user_projects_and_devices() to find the device's bus type, pin, and asha_id.
+#     2. Call get_tool_guide("publish_command") to get the exact payload format for that bus type.
+#     3. Call this tool with the payload you built from steps 1 and 2.
+#
+#     Never call this tool with an empty payload {} — an empty payload does nothing and
+#     the device will not respond. Always get device info (step 1) and payload format (step 2) first.
+#
+#     QUICK PAYLOAD SHAPE BY BUS TYPE (use get_tool_guide for full reference):
+#         Digital → {"pin": <pin>, "action": "digital", "value": 0|1}  (-1 + wait_response=True to read)
+#         PWM     → {"pin": <pin>, "action": "pwm", "freq": <hz>, "duty": <0-65535>}
+#                   Stop (not duty:0) → {"pin": <pin>, "action": "stop_pwm"}
+#         Analog  → {"pin": <pin>, "action": "analog"} with wait_response=True (read-only, GPIO 32-39)
+#         I2C     → {"action": "i2c_write", "addr": <dec>, "reg": <reg>, "data": [<bytes>]}  (no pin field)
+#         SPI     → {"action": "spi_write", "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}  (cs_pin from get_user_projects_and_devices)
+#                   {"action": "spi_read",  "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<addr_byte>, 0x00, ...]}  (for continuous polling use asha.spiTransfer in Lua)
+#         UART    → {"action": "uart_write", "baud": <rate>, "tx_pin": 17, "rx_pin": 16, "data": "<str>"|[<bytes>]}
+#         IR      → {"action": "ir_send", "pin": <pin>, "freq": <khz>, "timings": [...]}  (get timings from fetch_device_ir_codes)
+#         Batch   → {"action": "batch", "commands": [<command>, {"delay_ms": <ms>}, ...]}
+#
+#     CORE RULES:
+#     1. Match payload structure to bus type exactly; I2C/SPI never include a pin field
+#     2. Never guess a pin — always use values from get_user_projects_and_devices()
+#     3. Never send freq=0 for PWM (minimum is 1)
+#     4. "Turn off" a PWM device → send stop_pwm, not duty:0 (duty:0 leaves the signal running)
+#     5. Set wait_response=True only for reads (value:-1, analog, or PWM/I2C reads) — never for writes
+#     6. For multiple devices at once or timed sequences, use a single batch command
+#     """
+#     response = publish_to_device(asha_id, payload, wait_response=wait_response)
+#     return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
 
 
-@mcp.tool
-def create_a_scheduled_workflow(workflow: Workflow):
-    """
-    Use this tool when the user wants to automate a repeated or time-based task.
+# commented out for the Asha Iris hackathon demo — TV/IR control not needed,
+# restore after the demo
+# @mcp.tool
+# def fetch_device_ir_codes(vendor: str, command: str) -> dict:
+#     """
+#     Returns the raw IR timing array for a given vendor and command.
+#     Always call this before publish_command when the device bus is "IR".
+#
+#     WHEN TO USE:
+#     - Device bus is "IR"
+#     - User wants to control a TV, AC, set-top box, or any IR-controlled device
+#
+#     ──────────────────────────────────────────
+#     FLOW
+#     ──────────────────────────────────────────
+#     1. Call fetch_device_ir_codes(vendor, command) → get timings
+#     2. Call publish_command with the timings:
+#         {"action": "ir_send", "pin": <pin>, "freq": <freq from response>, "timings": <timings from response>}
+#
+#     ──────────────────────────────────────────
+#     AVAILABLE VENDORS AND COMMANDS
+#     ──────────────────────────────────────────
+#     samsung:
+#         power        → toggle TV on/off
+#         volume_up    → increase volume
+#         volume_down  → decrease volume
+#         mute         → toggle mute
+#         channel_up   → next channel
+#         channel_down → previous channel
+#         hdmi1        → switch to HDMI 1
+#         hdmi2        → switch to HDMI 2
+#
+#     NOTE: More vendors (LG, Sony, Panasonic) will be added via the dashboard.
+#     If the vendor or command is not listed, inform the user it is not yet supported.
+#
+#     ──────────────────────────────────────────
+#     EXAMPLE
+#     ──────────────────────────────────────────
+#     User: "Turn off the Samsung TV"
+#
+#     Step 1 → fetch_device_ir_codes("samsung", "power")
+#     Response: {"vendor": "samsung", "command": "power", "freq": 38, "timings": [4500, 4500, ...]}
+#
+#     Step 2 → publish_command(
+#         asha_id="299c90fc-...",
+#         payload={"action": "ir_send", "pin": 19, "freq": 38, "timings": [4500, 4500, ...]}
+#     )
+#     """
+#     vendor = vendor.lower()
+#     command = command.lower()
+#
+#     if vendor not in IR_CODES:
+#         return {"error": f"Vendor '{vendor}' not supported yet."}
+#     if command not in IR_CODES[vendor]:
+#         return {"error": f"Command '{command}' not found for vendor '{vendor}'."}
+#
+#     timings = build_samsung_raw(IR_CODES[vendor][command])
+#     return {"vendor": vendor, "command": command, "freq": 38, "timings": timings}
 
-    WHEN TO USE:
-    - "Turn on the light at 6am every day"
-    - "Turn off the fan every 30 minutes"
-    - "Every Friday at 9pm turn off all devices"
-    - Any request involving "every", "at [time]", "schedule", "automatically"
 
-    DO NOT USE for one-time commands — use publish_command instead.
-
-    BEFORE CALLING THIS TOOL:
-    Always call get_user_projects_and_devices() first to get the correct asha_id and device pins unless it has already been called and exists in context.
-
-    WORKFLOW_ID FORMAT:
-    Combine a short description with random alphanumeric characters.
-    Example: "morning_light_9x2k", "fan_schedule_b3m7"
-
-    CRON EXPRESSION FORMAT:
-    "minute hour day month day_of_week"
-    Examples:
-        Every day at 6am          → "0 6 * * *"
-        Every day at 10pm         → "0 22 * * *"
-        Every 30 minutes          → "*/30 * * * *"
-        Every Friday at 9pm       → "0 21 * * 5"
-        Every weekday at 8am      → "0 8 * * 1-5"
-        Every hour                → "0 * * * *"
-
-    ACTIONS FORMAT:
-    List of MQTT payloads following the same bus rules as publish_command.
-    Examples:
-        [{"pin": 18, "action": "digital", "value": 1}]
-        [{"pin": 18, "action": "digital", "value": 1}, {"pin": 19, "action": "digital", "value": 0}]
-        [{"pin": 18, "action": "pwm", "freq": 5000, "duty": 65535}]
-
-    RULES:
-    1. Always use pins from get_user_projects_and_devices() — never guess
-    2. Generate a unique workflow_id every time
-    3. Match action payload structure to the device bus type exactly
-    4. If the user wants a simple ON/OFF cycle (e.g. "on for 1 min then off"),
-        use ONE workflow with a batch command containing the full sequence including delay_ms.
-        Example: on for 1 min, off →
-        actions: [{"pin":18,"action":"digital","value":1}, {"delay_ms":60000}, {"pin":18,"action":"digital","value":0}]
-        Only create TWO separate workflows if the on-time and off-time are at specific clock times
-        (e.g. "turn on at 6am and off at 10pm").
-    5. If the repeat frequency is ambiguous ("do this repeatedly", "do this often") —
-       ask the user to clarify before creating the workflow.
-       Ask: "How often should this run? For example: every hour, every day at 6am, every 30 minutes."
-    6. Never assume a frequency — always confirm if unclear
-    """
-    create_scheduled_workflow(workflow)
-
-
-@mcp.tool
-def delete_Workflow(workflow_id : str):
-    """Use this flow when a user wants to delete a workflow or stop it"""
-    delete_workflow(workflow_id)
+# commented out for the Asha Iris hackathon demo — cron scheduling not needed
+# for the real-time escalation flow, restore after the demo
+# @mcp.tool
+# def create_a_scheduled_workflow(workflow: Workflow):
+#     """
+#     Use this tool when the user wants to automate a repeated or time-based task.
+#
+#     WHEN TO USE:
+#     - "Turn on the light at 6am every day"
+#     - "Turn off the fan every 30 minutes"
+#     - "Every Friday at 9pm turn off all devices"
+#     - Any request involving "every", "at [time]", "schedule", "automatically"
+#
+#     DO NOT USE for one-time commands — use publish_command instead.
+#
+#     BEFORE CALLING THIS TOOL:
+#     Always call get_user_projects_and_devices() first to get the correct asha_id and device pins unless it has already been called and exists in context.
+#
+#     WORKFLOW_ID FORMAT:
+#     Combine a short description with random alphanumeric characters.
+#     Example: "morning_light_9x2k", "fan_schedule_b3m7"
+#
+#     CRON EXPRESSION FORMAT:
+#     "minute hour day month day_of_week"
+#     Examples:
+#         Every day at 6am          → "0 6 * * *"
+#         Every day at 10pm         → "0 22 * * *"
+#         Every 30 minutes          → "*/30 * * * *"
+#         Every Friday at 9pm       → "0 21 * * 5"
+#         Every weekday at 8am      → "0 8 * * 1-5"
+#         Every hour                → "0 * * * *"
+#
+#     ACTIONS FORMAT:
+#     List of MQTT payloads following the same bus rules as publish_command.
+#     Examples:
+#         [{"pin": 18, "action": "digital", "value": 1}]
+#         [{"pin": 18, "action": "digital", "value": 1}, {"pin": 19, "action": "digital", "value": 0}]
+#         [{"pin": 18, "action": "pwm", "freq": 5000, "duty": 65535}]
+#
+#     RULES:
+#     1. Always use pins from get_user_projects_and_devices() — never guess
+#     2. Generate a unique workflow_id every time
+#     3. Match action payload structure to the device bus type exactly
+#     4. If the user wants a simple ON/OFF cycle (e.g. "on for 1 min then off"),
+#         use ONE workflow with a batch command containing the full sequence including delay_ms.
+#         Example: on for 1 min, off →
+#         actions: [{"pin":18,"action":"digital","value":1}, {"delay_ms":60000}, {"pin":18,"action":"digital","value":0}]
+#         Only create TWO separate workflows if the on-time and off-time are at specific clock times
+#         (e.g. "turn on at 6am and off at 10pm").
+#     5. If the repeat frequency is ambiguous ("do this repeatedly", "do this often") —
+#        ask the user to clarify before creating the workflow.
+#        Ask: "How often should this run? For example: every hour, every day at 6am, every 30 minutes."
+#     6. Never assume a frequency — always confirm if unclear
+#     """
+#     create_scheduled_workflow(workflow)
+#
+#
+# @mcp.tool
+# def delete_Workflow(workflow_id : str):
+#     """Use this flow when a user wants to delete a workflow or stop it"""
+#     delete_workflow(workflow_id)
 
 
 @mcp.tool
@@ -756,13 +867,15 @@ def create_a_real_time_task(asha_id: str, payload: dict):
     exceeds 40, trigger the alarm". If the task involves conditions, sensor thresholds,
     or must react without waiting for the agent, use this tool instead of publish_command.
 
-    Always call get_user_projects_and_devices() first to get the correct pin numbers.
-    Never guess pin numbers.
+    ALWAYS follow these steps in order — do NOT skip any step:
+    1. Call get_user_projects_and_devices() to find the device's pin, bus type, and asha_id.
+    2. Call get_tool_guide("create_a_real_time_task") to get the Lua syntax, asha.* function
+       reference, monitoring patterns, debounce rules, and worked examples.
+    3. Write the Lua script using the guide from step 2 and the pins from step 1.
+    4. Call this tool with payload: {"action": "lua", "script": "<your lua script>"}.
 
-    HOW IT WORKS: you write a Lua script as a string; the ESP32 runs it on a
-    dedicated core via the `asha` module (asha.command, asha.digitalRead,
-    asha.analogRead, asha.ledcRead, asha.publish, asha.subscribe, asha.readMessage,
-    asha.sleep). Payload: {"action": "lua", "script": "<lua script>"}.
+    Never call this tool with an empty payload {} — the device will receive nothing and
+    no script will run. Always get device info (step 1) and the Lua guide (step 2) first.
 
     CRITICAL, NO EXCEPTIONS: every `while` loop MUST call asha.sleep(ms) (10ms
     minimum) at least once per iteration. The ESP32's watchdog reboots the device
@@ -772,12 +885,6 @@ def create_a_real_time_task(asha_id: str, payload: dict):
     If a real-time script is already running from earlier in this conversation,
     do NOT send a second independent script — the device only runs one at a time.
     Merge the new condition into the existing script and send one combined replacement.
-
-    Call get_tool_guide("create_a_real_time_task") before writing your first script
-    in a conversation — it has full Lua syntax, the asha.* function reference,
-    the change-detection/monitoring pattern (including the asha.publish() message-
-    quality rules for user notifications), the ledcRead-must-follow-a-PWM-command
-    ordering rule, and worked examples for every pattern above.
     """
     publish_to_device(asha_id, payload)
 

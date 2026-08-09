@@ -9,7 +9,7 @@ from model import document_models as all_models
 from core.mqtt import client
 from utils.mqtt import set_event_loop
 from core.scheduler import scheduler
-from transformers import pipeline as hf_pipeline
+# from transformers import pipeline as hf_pipeline
 
 load_dotenv()
 
@@ -30,10 +30,10 @@ def create_lifespan(mcp_app):
                 scheduler.start()
                 xlogger.info("scheduler started")
                 logger.info("Loading ASR model...")
-                app.state.asr_pipeline = hf_pipeline(
-                    "automatic-speech-recognition",
-                    model="pius-code/asha_twi_adapter",
-                )
+                # app.state.asr_pipeline = hf_pipeline(
+                #     "automatic-speech-recognition",
+                #     model="pius-code/asha_twi_adapter",
+                # )
                 logger.info("ASR model loaded and ready")
                 set_event_loop(asyncio.get_running_loop())
                 client.loop_start()
