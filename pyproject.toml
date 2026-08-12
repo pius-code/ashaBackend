@@ -3,7 +3,7 @@ name = "ashabackend"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "beanie==2.0.1",
     "motor==3.7.1",
@@ -15,7 +15,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "paho-mqtt>=2.1.0",
     "fastmcp>=3.2.4",
-    "pywin32>=311",
+    "pywin32>=311; sys_platform == 'win32'",
     "apscheduler>=3.11.2",
     "numpy>=2.0,<2.5",
     "soundfile>=0.14.0",
