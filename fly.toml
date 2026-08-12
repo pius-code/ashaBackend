@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for ashabackend-ivory-driftwood-933 on 2026-08-12T01:59:38Z
+# fly.toml app configuration file generated for ashabackend-mellowing-branch-1430 on 2026-08-12T02:05:52Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'ashabackend-ivory-driftwood-933'
+app = 'ashabackend-mellowing-branch-1430'
 primary_region = 'jnb'
 
 [build]
