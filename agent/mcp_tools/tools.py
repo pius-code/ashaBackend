@@ -3,19 +3,20 @@
 
 """all the tools that ASHA needs to run for now, use depends to get user id without the LLM having to ask for it, runs before tools are even understood by LLM, hidden """
 
+from fastmcp import Context
+
 from agent.core.fastmcp import mcp
 from fastmcp.dependencies import Depends
-from agent.tools.devices_tools import get_asha_user_projects_and_devices
 from agent.tools.pubSub_tools import publish_to_device
 from agent.tools.scheduler import create_scheduled_workflow, delete_workflow
 from agent.schema.workflow import Workflow
 from agent.tools.Http_tools import post, url
 from agent.tools.ir_tools import build_samsung_raw
 from agent.core.ir_codes import IR_CODES
+from repository.asha_repo import get_asha_devices_by_pairing_code
+from fastmcp.dependencies import CurrentHeaders
 
 
-def get_user_id() -> str:
-    return "your user ID"
 
 
 # Full reference docs for the heaviest tools, fetched on demand via get_tool_guide()
@@ -692,171 +693,168 @@ def get_tool_guide(tool_name: str) -> str:
 
 
 @mcp.tool
-async def get_user_projects_and_devices():
+async def get_user_projects_and_devices(headers: dict = CurrentHeaders()):
     """Returns all a users projects and the devices including devices information that the user has"""
-    return await get_asha_user_projects_and_devices()
+    pairing_code = headers.get("x-pairing-code")
+    if not pairing_code:
+        return {"error": "No pairing code provided in request headers"}
+    return await get_asha_devices_by_pairing_code(pairing_code)
 
 
-# commented out for the Asha Iris hackathon demo — not needed for the escalation
-# flow, restore after the demo
-# @mcp.tool
-# async def publish_command(asha_id: str, payload: dict, wait_response: bool = False):
-#     """
-#     Publishes a command to an ESP32 device via MQTT.
-#
-#     ALWAYS follow these steps in order — do NOT skip any step:
-#     1. Call get_user_projects_and_devices() to find the device's bus type, pin, and asha_id.
-#     2. Call get_tool_guide("publish_command") to get the exact payload format for that bus type.
-#     3. Call this tool with the payload you built from steps 1 and 2.
-#
-#     Never call this tool with an empty payload {} — an empty payload does nothing and
-#     the device will not respond. Always get device info (step 1) and payload format (step 2) first.
-#
-#     QUICK PAYLOAD SHAPE BY BUS TYPE (use get_tool_guide for full reference):
-#         Digital → {"pin": <pin>, "action": "digital", "value": 0|1}  (-1 + wait_response=True to read)
-#         PWM     → {"pin": <pin>, "action": "pwm", "freq": <hz>, "duty": <0-65535>}
-#                   Stop (not duty:0) → {"pin": <pin>, "action": "stop_pwm"}
-#         Analog  → {"pin": <pin>, "action": "analog"} with wait_response=True (read-only, GPIO 32-39)
-#         I2C     → {"action": "i2c_write", "addr": <dec>, "reg": <reg>, "data": [<bytes>]}  (no pin field)
-#         SPI     → {"action": "spi_write", "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}  (cs_pin from get_user_projects_and_devices)
-#                   {"action": "spi_read",  "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<addr_byte>, 0x00, ...]}  (for continuous polling use asha.spiTransfer in Lua)
-#         UART    → {"action": "uart_write", "baud": <rate>, "tx_pin": 17, "rx_pin": 16, "data": "<str>"|[<bytes>]}
-#         IR      → {"action": "ir_send", "pin": <pin>, "freq": <khz>, "timings": [...]}  (get timings from fetch_device_ir_codes)
-#         Batch   → {"action": "batch", "commands": [<command>, {"delay_ms": <ms>}, ...]}
-#
-#     CORE RULES:
-#     1. Match payload structure to bus type exactly; I2C/SPI never include a pin field
-#     2. Never guess a pin — always use values from get_user_projects_and_devices()
-#     3. Never send freq=0 for PWM (minimum is 1)
-#     4. "Turn off" a PWM device → send stop_pwm, not duty:0 (duty:0 leaves the signal running)
-#     5. Set wait_response=True only for reads (value:-1, analog, or PWM/I2C reads) — never for writes
-#     6. For multiple devices at once or timed sequences, use a single batch command
-#     """
-#     response = publish_to_device(asha_id, payload, wait_response=wait_response)
-#     return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
+@mcp.tool
+async def publish_command(asha_id: str, payload: dict, wait_response: bool = False):
+    """
+    Publishes a command to an ESP32 device via MQTT.
+
+    ALWAYS follow these steps in order — do NOT skip any step:
+    1. Call get_user_projects_and_devices() to find the device's bus type, pin, and asha_id.
+    2. Call get_tool_guide("publish_command") to get the exact payload format for that bus type.
+    3. Call this tool with the payload you built from steps 1 and 2.
+
+    Never call this tool with an empty payload {} — an empty payload does nothing and
+    the device will not respond. Always get device info (step 1) and payload format (step 2) first.
+
+    QUICK PAYLOAD SHAPE BY BUS TYPE (use get_tool_guide for full reference):
+        Digital → {"pin": <pin>, "action": "digital", "value": 0|1}  (-1 + wait_response=True to read)
+        PWM     → {"pin": <pin>, "action": "pwm", "freq": <hz>, "duty": <0-65535>}
+                  Stop (not duty:0) → {"pin": <pin>, "action": "stop_pwm"}
+        Analog  → {"pin": <pin>, "action": "analog"} with wait_response=True (read-only, GPIO 32-39)
+        I2C     → {"action": "i2c_write", "addr": <dec>, "reg": <reg>, "data": [<bytes>]}  (no pin field)
+        SPI     → {"action": "spi_write", "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<bytes>]}  (cs_pin from get_user_projects_and_devices)
+                  {"action": "spi_read",  "cs_pin": <pin>, "speed": <hz>, "mode": <0-3>, "data": [<addr_byte>, 0x00, ...]}  (for continuous polling use asha.spiTransfer in Lua)
+        UART    → {"action": "uart_write", "baud": <rate>, "tx_pin": 17, "rx_pin": 16, "data": "<str>"|[<bytes>]}
+        IR      → {"action": "ir_send", "pin": <pin>, "freq": <khz>, "timings": [...]}  (get timings from fetch_device_ir_codes)
+        Batch   → {"action": "batch", "commands": [<command>, {"delay_ms": <ms>}, ...]}
+
+    CORE RULES:
+    1. Match payload structure to bus type exactly; I2C/SPI never include a pin field
+    2. Never guess a pin — always use values from get_user_projects_and_devices()
+    3. Never send freq=0 for PWM (minimum is 1)
+    4. "Turn off" a PWM device → send stop_pwm, not duty:0 (duty:0 leaves the signal running)
+    5. Set wait_response=True only for reads (value:-1, analog, or PWM/I2C reads) — never for writes
+    6. For multiple devices at once or timed sequences, use a single batch command
+    """
+    response = publish_to_device(asha_id, payload, wait_response=wait_response)
+    return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
 
 
-# commented out for the Asha Iris hackathon demo — TV/IR control not needed,
-# restore after the demo
-# @mcp.tool
-# def fetch_device_ir_codes(vendor: str, command: str) -> dict:
-#     """
-#     Returns the raw IR timing array for a given vendor and command.
-#     Always call this before publish_command when the device bus is "IR".
-#
-#     WHEN TO USE:
-#     - Device bus is "IR"
-#     - User wants to control a TV, AC, set-top box, or any IR-controlled device
-#
-#     ──────────────────────────────────────────
-#     FLOW
-#     ──────────────────────────────────────────
-#     1. Call fetch_device_ir_codes(vendor, command) → get timings
-#     2. Call publish_command with the timings:
-#         {"action": "ir_send", "pin": <pin>, "freq": <freq from response>, "timings": <timings from response>}
-#
-#     ──────────────────────────────────────────
-#     AVAILABLE VENDORS AND COMMANDS
-#     ──────────────────────────────────────────
-#     samsung:
-#         power        → toggle TV on/off
-#         volume_up    → increase volume
-#         volume_down  → decrease volume
-#         mute         → toggle mute
-#         channel_up   → next channel
-#         channel_down → previous channel
-#         hdmi1        → switch to HDMI 1
-#         hdmi2        → switch to HDMI 2
-#
-#     NOTE: More vendors (LG, Sony, Panasonic) will be added via the dashboard.
-#     If the vendor or command is not listed, inform the user it is not yet supported.
-#
-#     ──────────────────────────────────────────
-#     EXAMPLE
-#     ──────────────────────────────────────────
-#     User: "Turn off the Samsung TV"
-#
-#     Step 1 → fetch_device_ir_codes("samsung", "power")
-#     Response: {"vendor": "samsung", "command": "power", "freq": 38, "timings": [4500, 4500, ...]}
-#
-#     Step 2 → publish_command(
-#         asha_id="299c90fc-...",
-#         payload={"action": "ir_send", "pin": 19, "freq": 38, "timings": [4500, 4500, ...]}
-#     )
-#     """
-#     vendor = vendor.lower()
-#     command = command.lower()
-#
-#     if vendor not in IR_CODES:
-#         return {"error": f"Vendor '{vendor}' not supported yet."}
-#     if command not in IR_CODES[vendor]:
-#         return {"error": f"Command '{command}' not found for vendor '{vendor}'."}
-#
-#     timings = build_samsung_raw(IR_CODES[vendor][command])
-#     return {"vendor": vendor, "command": command, "freq": 38, "timings": timings}
+@mcp.tool
+def fetch_device_ir_codes(vendor: str, command: str) -> dict:
+    """
+    Returns the raw IR timing array for a given vendor and command.
+    Always call this before publish_command when the device bus is "IR".
+
+    WHEN TO USE:
+    - Device bus is "IR"
+    - User wants to control a TV, AC, set-top box, or any IR-controlled device
+
+    ──────────────────────────────────────────
+    FLOW
+    ──────────────────────────────────────────
+    1. Call fetch_device_ir_codes(vendor, command) → get timings
+    2. Call publish_command with the timings:
+        {"action": "ir_send", "pin": <pin>, "freq": <freq from response>, "timings": <timings from response>}
+
+    ──────────────────────────────────────────
+    AVAILABLE VENDORS AND COMMANDS
+    ──────────────────────────────────────────
+    samsung:
+        power        → toggle TV on/off
+        volume_up    → increase volume
+        volume_down  → decrease volume
+        mute         → toggle mute
+        channel_up   → next channel
+        channel_down → previous channel
+        hdmi1        → switch to HDMI 1
+        hdmi2        → switch to HDMI 2
+
+    NOTE: More vendors (LG, Sony, Panasonic) will be added via the dashboard.
+    If the vendor or command is not listed, inform the user it is not yet supported.
+
+    ──────────────────────────────────────────
+    EXAMPLE
+    ──────────────────────────────────────────
+    User: "Turn off the Samsung TV"
+
+    Step 1 → fetch_device_ir_codes("samsung", "power")
+    Response: {"vendor": "samsung", "command": "power", "freq": 38, "timings": [4500, 4500, ...]}
+
+    Step 2 → publish_command(
+        asha_id="299c90fc-...",
+        payload={"action": "ir_send", "pin": 19, "freq": 38, "timings": [4500, 4500, ...]}
+    )
+    """
+    vendor = vendor.lower()
+    command = command.lower()
+
+    if vendor not in IR_CODES:
+        return {"error": f"Vendor '{vendor}' not supported yet."}
+    if command not in IR_CODES[vendor]:
+        return {"error": f"Command '{command}' not found for vendor '{vendor}'."}
+
+    timings = build_samsung_raw(IR_CODES[vendor][command])
+    return {"vendor": vendor, "command": command, "freq": 38, "timings": timings}
 
 
-# commented out for the Asha Iris hackathon demo — cron scheduling not needed
-# for the real-time escalation flow, restore after the demo
-# @mcp.tool
-# def create_a_scheduled_workflow(workflow: Workflow):
-#     """
-#     Use this tool when the user wants to automate a repeated or time-based task.
-#
-#     WHEN TO USE:
-#     - "Turn on the light at 6am every day"
-#     - "Turn off the fan every 30 minutes"
-#     - "Every Friday at 9pm turn off all devices"
-#     - Any request involving "every", "at [time]", "schedule", "automatically"
-#
-#     DO NOT USE for one-time commands — use publish_command instead.
-#
-#     BEFORE CALLING THIS TOOL:
-#     Always call get_user_projects_and_devices() first to get the correct asha_id and device pins unless it has already been called and exists in context.
-#
-#     WORKFLOW_ID FORMAT:
-#     Combine a short description with random alphanumeric characters.
-#     Example: "morning_light_9x2k", "fan_schedule_b3m7"
-#
-#     CRON EXPRESSION FORMAT:
-#     "minute hour day month day_of_week"
-#     Examples:
-#         Every day at 6am          → "0 6 * * *"
-#         Every day at 10pm         → "0 22 * * *"
-#         Every 30 minutes          → "*/30 * * * *"
-#         Every Friday at 9pm       → "0 21 * * 5"
-#         Every weekday at 8am      → "0 8 * * 1-5"
-#         Every hour                → "0 * * * *"
-#
-#     ACTIONS FORMAT:
-#     List of MQTT payloads following the same bus rules as publish_command.
-#     Examples:
-#         [{"pin": 18, "action": "digital", "value": 1}]
-#         [{"pin": 18, "action": "digital", "value": 1}, {"pin": 19, "action": "digital", "value": 0}]
-#         [{"pin": 18, "action": "pwm", "freq": 5000, "duty": 65535}]
-#
-#     RULES:
-#     1. Always use pins from get_user_projects_and_devices() — never guess
-#     2. Generate a unique workflow_id every time
-#     3. Match action payload structure to the device bus type exactly
-#     4. If the user wants a simple ON/OFF cycle (e.g. "on for 1 min then off"),
-#         use ONE workflow with a batch command containing the full sequence including delay_ms.
-#         Example: on for 1 min, off →
-#         actions: [{"pin":18,"action":"digital","value":1}, {"delay_ms":60000}, {"pin":18,"action":"digital","value":0}]
-#         Only create TWO separate workflows if the on-time and off-time are at specific clock times
-#         (e.g. "turn on at 6am and off at 10pm").
-#     5. If the repeat frequency is ambiguous ("do this repeatedly", "do this often") —
-#        ask the user to clarify before creating the workflow.
-#        Ask: "How often should this run? For example: every hour, every day at 6am, every 30 minutes."
-#     6. Never assume a frequency — always confirm if unclear
-#     """
-#     create_scheduled_workflow(workflow)
-#
-#
-# @mcp.tool
-# def delete_Workflow(workflow_id : str):
-#     """Use this flow when a user wants to delete a workflow or stop it"""
-#     delete_workflow(workflow_id)
+@mcp.tool
+def create_a_scheduled_workflow(workflow: Workflow):
+    """
+    Use this tool when the user wants to automate a repeated or time-based task.
+
+    WHEN TO USE:
+    - "Turn on the light at 6am every day"
+    - "Turn off the fan every 30 minutes"
+    - "Every Friday at 9pm turn off all devices"
+    - Any request involving "every", "at [time]", "schedule", "automatically"
+
+    DO NOT USE for one-time commands — use publish_command instead.
+
+    BEFORE CALLING THIS TOOL:
+    Always call get_user_projects_and_devices() first to get the correct asha_id and device pins unless it has already been called and exists in context.
+
+    WORKFLOW_ID FORMAT:
+    Combine a short description with random alphanumeric characters.
+    Example: "morning_light_9x2k", "fan_schedule_b3m7"
+
+    CRON EXPRESSION FORMAT:
+    "minute hour day month day_of_week"
+    Examples:
+        Every day at 6am          → "0 6 * * *"
+        Every day at 10pm         → "0 22 * * *"
+        Every 30 minutes          → "*/30 * * * *"
+        Every Friday at 9pm       → "0 21 * * 5"
+        Every weekday at 8am      → "0 8 * * 1-5"
+        Every hour                → "0 * * * *"
+
+    ACTIONS FORMAT:
+    List of MQTT payloads following the same bus rules as publish_command.
+    Examples:
+        [{"pin": 18, "action": "digital", "value": 1}]
+        [{"pin": 18, "action": "digital", "value": 1}, {"pin": 19, "action": "digital", "value": 0}]
+        [{"pin": 18, "action": "pwm", "freq": 5000, "duty": 65535}]
+
+    RULES:
+    1. Always use pins from get_user_projects_and_devices() — never guess
+    2. Generate a unique workflow_id every time
+    3. Match action payload structure to the device bus type exactly
+    4. If the user wants a simple ON/OFF cycle (e.g. "on for 1 min then off"),
+        use ONE workflow with a batch command containing the full sequence including delay_ms.
+        Example: on for 1 min, off →
+        actions: [{"pin":18,"action":"digital","value":1}, {"delay_ms":60000}, {"pin":18,"action":"digital","value":0}]
+        Only create TWO separate workflows if the on-time and off-time are at specific clock times
+        (e.g. "turn on at 6am and off at 10pm").
+    5. If the repeat frequency is ambiguous ("do this repeatedly", "do this often") —
+       ask the user to clarify before creating the workflow.
+       Ask: "How often should this run? For example: every hour, every day at 6am, every 30 minutes."
+    6. Never assume a frequency — always confirm if unclear
+    """
+    create_scheduled_workflow(workflow)
+
+
+@mcp.tool
+def delete_Workflow(workflow_id : str):
+    """Use this flow when a user wants to delete a workflow or stop it"""
+    delete_workflow(workflow_id)
 
 
 @mcp.tool

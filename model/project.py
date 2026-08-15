@@ -6,5 +6,6 @@ from typing import Annotated
 class Project(Document):
     Name: str | None = None
     AshaID: Annotated[str, Indexed(unique=True)]
-    PhoneNumber: str | None = None
-    Created_by: str | None = None
+    MacAddress: Annotated[str, Indexed(unique=True)] | None = None
+    PairingCode: str | None = None
+    Status: str = "uncommissioned"  # "uncommissioned" or "commissioned"

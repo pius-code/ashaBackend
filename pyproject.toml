@@ -15,7 +15,6 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "paho-mqtt>=2.1.0",
     "fastmcp>=3.2.4",
-    "pywin32>=311; sys_platform == 'win32'",
     "apscheduler>=3.11.2",
     "numpy>=2.0,<2.5",
     "soundfile>=0.14.0",
@@ -23,4 +22,9 @@ dependencies = [
     "torch>=2.12.1",
     "requests>=2.34.2",
     "librosa>=0.11.0",
+]
+[tool.uv]
+environments = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'linux'",
 ]

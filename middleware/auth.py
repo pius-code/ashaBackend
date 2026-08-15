@@ -18,6 +18,8 @@ PUBLIC_PATHS = [
     "/api/v1/users/create",
     "/api/v1/users/login",
     "/api/v1/asha/verify_and_register_device",
+    "/api/v1/asha/is_pairing_code_valid",
+    "/api/v1/asha/uncommission_device",
     "/api/v1/asha/twi_transcribe"
 ]
 

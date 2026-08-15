@@ -1,19 +1,24 @@
 from pydantic import BaseModel
-from typing import List, Optional
-
-
-class DeviceInfo(BaseModel):
-    device_id: int
-    pin: int
-    category: str
-    metadata: str
-    bus: str
-    sck: Optional[int] = None
-    miso: Optional[int] = None
-    mosi: Optional[int] = None
-    cs: Optional[int] = None
+from typing import List
+from model.asha_device import DeviceInfo
 
 
 class AshaVerificationRequest(BaseModel):
-    auth_id: str
+    project_name: str
+    mac_address: str
     devices: List[DeviceInfo]
+
+
+class ashaDeviceSchema(BaseModel):
+    auth_id: str
+    asha_id: str
+    pairing_code: str | None = None
+    devices: List[DeviceInfo]
+
+
+class PairingCodeCheckRequest(BaseModel):
+    pairing_code: str
+
+
+class UncommissionRequest(BaseModel):
+    pairing_code: str
