@@ -18,8 +18,6 @@ PUBLIC_PATHS = [
     "/api/v1/users/create",
     "/api/v1/users/login",
     "/api/v1/asha/verify_and_register_device",
-    "/api/v1/asha/is_pairing_code_valid",
-    "/api/v1/asha/uncommission_device",
     "/api/v1/asha/twi_transcribe"
 ]
 
@@ -27,6 +25,8 @@ PUBLIC_PATHS = [
 async def verify_token_middleware(request: Request, call_next):
     if (request.method == "OPTIONS" or
         request.url.path.startswith("/mcp") or
+        request.url.path.startswith("/sse") or
+        request.url.path.startswith("/messages") or
         request.url.path in PUBLIC_PATHS): # noqa
         return await call_next(request)
 

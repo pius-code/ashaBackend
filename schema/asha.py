@@ -22,3 +22,9 @@ class PairingCodeCheckRequest(BaseModel):
 
 class UncommissionRequest(BaseModel):
     pairing_code: str
+
+
+class ClaimDeviceRequest(BaseModel):
+    pairing_code: str
+    channel: str | None = None
+    address: str | None = None

@@ -17,8 +17,8 @@ class DeviceInfo(BaseModel):
 
 class AshaDevice(Document):
     auth_id: str  # mac address of the esp32
-    asha_id: str  # the asha string that links to a project
-    pairing_code: str | None = None  # links to Project.PairingCode
+    asha_id: Optional[str] = None  # the asha string that links to a project
+    pairing_code: Optional[str] = None  # links to Project.PairingCode
     devices: List[DeviceInfo]
 
     class settings:

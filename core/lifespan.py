@@ -23,18 +23,12 @@ def create_lifespan(mcp_app):
             async with mcp_app.lifespan(app):
                 mongo_client = AsyncIOMotorClient(os.getenv("MONGO_URL"))
                 await init_beanie(
-                    database=mongo_client.get_default_database(),
+                    database=mongo_client.get_default_database(),  # type: ignore # noqa
                     document_models=all_models,
                 )
                 logger.info(f"Connected to MongoDB with {len(all_models)} document models") # noqa
                 scheduler.start()
                 xlogger.info("scheduler started")
-                logger.info("Loading ASR model...")
-                # app.state.asr_pipeline = hf_pipeline(
-                #     "automatic-speech-recognition",
-                #     model="pius-code/asha_twi_adapter",
-                # )
-                logger.info("ASR model loaded and ready")
                 set_event_loop(asyncio.get_running_loop())
                 client.loop_start()
                 tlogger.info("Connected TO MQTT")
