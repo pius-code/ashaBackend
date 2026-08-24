@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -29,16 +30,24 @@ def create_lifespan(mcp_app):
                 scheduler.start()
                 xlogger.info("scheduler started")
                 set_event_loop(asyncio.get_running_loop())
-                
-                mqtt_ip = os.getenv("MQTT_IP", "d1fb95ffc6654d6e98effc66d26fed74.s1.eu.hivemq.cloud")
-                mqtt_port = int(os.getenv("MQTT_PORT", "8883"))
-                try:
-                    client.connect(mqtt_ip, mqtt_port, keepalive=60)
-                    client.loop_start()
-                    tlogger.info("Connected TO MQTT")
-                except Exception as e:
-                    tlogger.error(f"MQTT startup connect error: {e}")
-                    client.loop_start()
+
+                def _connect_with_retry():
+                    import time
+                    mqtt_ip = os.getenv("MQTT_IP", "d1fb95ffc6654d6e98effc66d26fed74.s1.eu.hivemq.cloud")  # noqa
+                    mqtt_port = int(os.getenv("MQTT_PORT", "8883"))
+                    for attempt in range(15):
+                        try:
+                            client.connect(mqtt_ip, mqtt_port, keepalive=60)
+                            client.loop_start()
+                            tlogger.info(f"Connected TO MQTT on attempt {attempt + 1}")  # noqa
+                            return
+                        except Exception as e:
+                            delay = min(5 * (attempt + 1), 30)
+                            tlogger.warning(f"MQTT attempt {attempt + 1} failed: {e} — retrying in {delay}s")  # noqa
+                            time.sleep(delay)
+                    tlogger.error("MQTT: All connection attempts exhausted")
+
+                threading.Thread(target=_connect_with_retry, daemon=True).start() # noqa
 
                 yield
 
