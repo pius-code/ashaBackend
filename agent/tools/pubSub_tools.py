@@ -1,6 +1,3 @@
-# flake8: noqa
-# type: ignore
-
 from core.mqtt import client
 import json
 from utils.logger import tlogger
@@ -13,6 +10,13 @@ _pending = {}
 def publish_to_device(asha_id: str, payload: dict, wait_response: bool = False):
     topic = f"asha/commands/{asha_id}"
     tlogger.info(payload)
+
+    if not client.is_connected():
+        tlogger.warning("MQTT client not connected, attempting reconnect...")
+        try:
+            client.reconnect()
+        except Exception as e:
+            tlogger.error(f"MQTT reconnect failed: {e}")
 
     if not wait_response:
         result = client.publish(topic, json.dumps(payload))

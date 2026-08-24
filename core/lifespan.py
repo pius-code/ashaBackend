@@ -9,7 +9,6 @@ from model import document_models as all_models
 from core.mqtt import client
 from utils.mqtt import set_event_loop
 from core.scheduler import scheduler
-# from transformers import pipeline as hf_pipeline
 
 load_dotenv()
 
@@ -30,8 +29,17 @@ def create_lifespan(mcp_app):
                 scheduler.start()
                 xlogger.info("scheduler started")
                 set_event_loop(asyncio.get_running_loop())
-                client.loop_start()
-                tlogger.info("Connected TO MQTT")
+                
+                mqtt_ip = os.getenv("MQTT_IP", "d1fb95ffc6654d6e98effc66d26fed74.s1.eu.hivemq.cloud")
+                mqtt_port = int(os.getenv("MQTT_PORT", "8883"))
+                try:
+                    client.connect(mqtt_ip, mqtt_port, keepalive=60)
+                    client.loop_start()
+                    tlogger.info("Connected TO MQTT")
+                except Exception as e:
+                    tlogger.error(f"MQTT startup connect error: {e}")
+                    client.loop_start()
+
                 yield
 
         except Exception as e:
@@ -42,8 +50,11 @@ def create_lifespan(mcp_app):
                 logger.info("Disconnecting from MongoDB...")
                 mongo_client.close()
                 logger.info("Disconnected from MongoDB")
-                client.loop_stop()
-                tlogger.info("Disconnected from MQTT")
+                try:
+                    client.loop_stop()
+                    tlogger.info("Disconnected from MQTT")
+                except Exception:
+                    pass
                 if scheduler.running:
                     scheduler.shutdown()
                 xlogger.info("scheduler stopped")
