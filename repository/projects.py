@@ -82,7 +82,10 @@ async def validate_and_commission_project(pairing_code: str, owner_email: str | 
 
 
 async def get_user_projects(owner_email: str):
-    projects = await Project.find(Project.Owner_Email == owner_email).to_list()
+    projects = await Project.find(
+        Project.Owner_Email == owner_email,
+        Project.Status == "commissioned"
+    ).to_list()
     results = []
     for proj in projects:
         device_doc = await AshaDevice.find_one(AshaDevice.asha_id == proj.AshaID) # noqa

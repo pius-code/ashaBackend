@@ -34,7 +34,13 @@ async def add_IoT_device(AshaIoTPayload: ashaDeviceSchema):
 
 
 async def get_asha_devices_by_pairing_code(pairing_code: str) -> AshaDevice | None: # noqa
-    return await AshaDevice.find_one(AshaDevice.pairing_code == pairing_code)
+    if not pairing_code:
+        return None
+    code = pairing_code.strip()
+    project = await Project.find_one(Project.PairingCode == code)
+    if not project or project.Status != "commissioned":
+        return None
+    return await AshaDevice.find_one(AshaDevice.pairing_code == code)
 
 
 

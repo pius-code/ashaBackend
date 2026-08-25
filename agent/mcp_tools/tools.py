@@ -14,6 +14,7 @@ from agent.tools.Http_tools import post, url
 from agent.tools.ir_tools import build_samsung_raw
 from agent.core.ir_codes import IR_CODES
 from repository.asha_repo import get_asha_devices_by_pairing_code
+from model.project import Project
 from fastmcp.dependencies import CurrentHeaders
 
 
@@ -698,7 +699,14 @@ async def get_user_projects_and_devices(headers: dict = CurrentHeaders()):
     pairing_code = headers.get("x-pairing-code")
     if not pairing_code:
         return {"error": "No pairing code provided in request headers"}
-    return await get_asha_devices_by_pairing_code(pairing_code)
+    device_data = await get_asha_devices_by_pairing_code(pairing_code)
+    if not device_data:
+        return {
+            "status": "uncommissioned",
+            "devices": [],
+            "message": "No active or commissioned devices found for this pairing code. The device is uncommissioned or unpaired. Please ask the user to pair their device first." # noqa
+        }
+    return device_data
 
 
 @mcp.tool
@@ -734,8 +742,16 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     5. Set wait_response=True only for reads (value:-1, analog, or PWM/I2C reads) — never for writes
     6. For multiple devices at once or timed sequences, use a single batch command
     """
+    project = await Project.find_one(Project.AshaID == asha_id)
+    if not project or project.Status != "commissioned":
+        return {
+            "status": "error",
+            "error": f"Cannot send command: Device '{asha_id}' is uncommissioned or inactive."
+        }
+
     response = publish_to_device(asha_id, payload, wait_response=wait_response)
     return {"status": "command sent", "asha_id": asha_id, "payload": payload, "response": response}
+
 
 
 @mcp.tool
