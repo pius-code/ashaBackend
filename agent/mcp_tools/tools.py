@@ -725,6 +725,8 @@ async def publish_command(asha_id: str, payload: dict, wait_response: bool = Fal
     QUICK PAYLOAD SHAPE BY BUS TYPE (use get_tool_guide for full reference):
         Digital → {"pin": <pin>, "action": "digital", "value": 0|1}  (-1 + wait_response=True to read)
         PWM     → {"pin": <pin>, "action": "pwm", "freq": <hz>, "duty": <0-65535>}
+                  For servos/doors (freq:50): 0° (close) = duty:1640, 90° (open) = duty:4915, 180° = duty:8192
+                  For fans/motors/dimming: percentage * 655.35 (e.g. 50% = duty:32768, 70% = duty:45875)
                   Stop (not duty:0) → {"pin": <pin>, "action": "stop_pwm"}
         Analog  → {"pin": <pin>, "action": "analog"} with wait_response=True (read-only, GPIO 32-39)
         I2C     → {"action": "i2c_write", "addr": <dec>, "reg": <reg>, "data": [<bytes>]}  (no pin field)
