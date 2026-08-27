@@ -353,6 +353,22 @@ Example — button script already running, user adds touch sensor condition:
           asha.sleep(10)
         end
 
+SENSOR DEBOUNCING & ANTI-GHOST TRIGGER PATTERN (PIR, BUTTONS, TOUCH):
+To prevent false alarms from Wi-Fi RF bursts or power noise, always double-check state transitions:
+    local prev = asha.digitalRead(pin)
+    while true do
+      local cur = asha.digitalRead(pin)
+      if cur == 1 and prev == 0 then
+        asha.sleep(200) -- wait 200ms to confirm sustained human presence
+        if asha.digitalRead(pin) == 1 then
+          -- confirmed genuine trigger!
+          asha.command('...')
+        end
+      end
+      prev = cur
+      asha.sleep(100)
+    end
+
 Always check conversation history before sending. If a real-time script exists,
 include all its conditions in the new script.
 
